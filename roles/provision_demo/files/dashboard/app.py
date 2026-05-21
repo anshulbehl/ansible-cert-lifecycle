@@ -32,6 +32,9 @@ AAP_HOST = os.environ.get("AAP_HOST", "")
 AAP_USERNAME = os.environ.get("AAP_USERNAME", "admin")
 AAP_PASSWORD = os.environ.get("AAP_PASSWORD", "")
 AAP_PIPELINE_JT_ID = os.environ.get("AAP_PIPELINE_JT_ID", "111")
+EDA_EVENT_STREAM_URL = os.environ.get("EDA_EVENT_STREAM_URL", "")
+EDA_EVENT_STREAM_USER = os.environ.get("EDA_EVENT_STREAM_USER", "cert-demo")
+EDA_EVENT_STREAM_PASS = os.environ.get("EDA_EVENT_STREAM_PASS", "")
 
 SERVICES = json.loads(os.environ.get("DEMO_SERVICES", "[]"))
 
@@ -231,25 +234,54 @@ async def invalidate_cert(service_name: str):
 
         event = add_event(
             "invalidate", service_name,
-            f"Certificate invalidated for {service_name}. Launching remediation pipeline.",
+            f"Certificate invalidated for {service_name}. Sending failure event to Splunk.",
         )
 
-        job_id, error = await launch_aap_job()
-        if job_id:
+        splunk_status, error = await send_splunk_event(service_name)
+        if splunk_status:
             add_event(
                 "trigger", service_name,
-                f"Remediation pipeline launched in AAP (job #{job_id})",
+                f"Cert failure sent to Splunk (HTTP {splunk_status}). Splunk will fire alert to EDA.",
             )
         else:
-            add_event("trigger", service_name, f"AAP launch failed: {error}")
+            add_event("trigger", service_name, f"Splunk event failed: {error}")
 
-        return {"status": "invalidated", "service": service_name, "aap_job_id": job_id, "event": event}
+        return {"status": "invalidated", "service": service_name, "splunk_status": splunk_status, "event": event}
 
     except subprocess.CalledProcessError as e:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to invalidate: {e.stderr.decode() if e.stderr else str(e)}",
         )
+
+
+async def send_splunk_event(service_name, event_type="cert_invalidated"):
+    if not SPLUNK_HEC_TOKEN:
+        return None, "Splunk HEC not configured"
+    payload = {
+        "event": {
+            "source": "splunk_itsi",
+            "kpi": "cert_expiry",
+            "host": "localhost",
+            "service": service_name,
+            "status": "expired",
+            "days_remaining": -1,
+            "severity": "critical",
+            "event_type": event_type,
+        },
+        "sourcetype": "cert_check",
+    }
+    try:
+        async with httpx.AsyncClient(verify=False) as client:
+            resp = await client.post(
+                SPLUNK_HEC,
+                headers={"Authorization": f"Splunk {SPLUNK_HEC_TOKEN}"},
+                json=payload,
+                timeout=10,
+            )
+            return resp.status_code, None
+    except Exception as e:
+        return None, str(e)
 
 
 async def launch_aap_job(job_template_id=None):

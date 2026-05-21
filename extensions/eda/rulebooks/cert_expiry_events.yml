@@ -2,12 +2,16 @@
 - name: Certificate Expiry Event Handler
   hosts: all
   sources:
-    - ansible.eda.pg_listener:
-        dsn: "{{ EDA_PG_DSN | default('') }}"
+    - ansible.eda.webhook:
+        host: 0.0.0.0
+        port: 5002
+      filters:
+        - ansible.eda.json_filter:
+            exclude_keys: []
 
   rules:
-    - name: Splunk ITSI cert expiry alert
-      condition: event.payload.source == "splunk_itsi" and event.payload.kpi is match("cert_expiry.*")
+    - name: Splunk cert expiry alert
+      condition: event.payload.source is defined and event.payload.source == "splunk_itsi"
       action:
         run_job_template:
           name: "Certificate Lifecycle Full Pipeline"
@@ -15,18 +19,9 @@
           job_args:
             extra_vars:
               trigger_source: splunk
-              trigger_host: "{{ event.payload.host }}"
-              trigger_severity: "{{ event.payload.severity }}"
 
-    - name: Splunk ES TLS failure alert
-      condition: event.payload.source == "splunk_es"
-      action:
-        run_job_template:
-          name: "Cert Discovery Scanner"
-          organization: "Default"
-
-    - name: Dashboard invalidate trigger
-      condition: event.payload.source == "dashboard"
+    - name: Dashboard trigger
+      condition: event.payload.source is defined and event.payload.source == "dashboard"
       action:
         run_job_template:
           name: "Certificate Lifecycle Full Pipeline"
@@ -34,24 +29,13 @@
           job_args:
             extra_vars:
               trigger_source: dashboard
-              trigger_service: "{{ event.payload.service | default('all') }}"
 
-    - name: Manual pipeline trigger
-      condition: event.payload.source == "manual"
+    - name: Any cert event
+      condition: event.payload.status is defined and event.payload.status == "expired"
       action:
         run_job_template:
           name: "Certificate Lifecycle Full Pipeline"
           organization: "Default"
           job_args:
             extra_vars:
-              trigger_source: manual
-
-    - name: Catch all cert events
-      condition: event.payload is defined
-      action:
-        run_job_template:
-          name: "Certificate Lifecycle Full Pipeline"
-          organization: "Default"
-          job_args:
-            extra_vars:
-              trigger_source: "{{ event.payload.source | default('unknown') }}"
+              trigger_source: event_stream
