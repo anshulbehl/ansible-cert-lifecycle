@@ -1,0 +1,3 @@
+---
+cert_renew_key_size: 2048
+cert_renew_validity_days: 365

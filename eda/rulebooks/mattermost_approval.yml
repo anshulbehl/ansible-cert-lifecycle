@@ -1,0 +1,40 @@
+---
+- name: Mattermost Certificate Approval Handler
+  hosts: all
+  sources:
+    - ansible.eda.webhook:
+        host: 0.0.0.0
+        port: 5001
+
+  rules:
+    - name: Critical cert renewal approved
+      condition: >-
+        event.payload.event == "reaction_added" and
+        event.payload.reaction.emoji_name == "white_check_mark" and
+        event.payload.post.channel_id is defined
+      action:
+        run_job_template:
+          name: "Renew Java Keystore"
+          organization: "Default"
+          job_args:
+            extra_vars:
+              cert_id: "{{ event.payload.post.props.cert_id | default('unknown') }}"
+              approved_by: "{{ event.payload.user.username }}"
+              approval_source: mattermost
+
+    - name: Critical cert renewal denied
+      condition: >-
+        event.payload.event == "reaction_added" and
+        event.payload.reaction.emoji_name == "x" and
+        event.payload.post.channel_id is defined
+      action:
+        run_job_template:
+          name: "Notify Mattermost"
+          organization: "Default"
+          job_args:
+            extra_vars:
+              report_message: >-
+                :x: Certificate renewal for {{ event.payload.post.props.cert_id | default('unknown') }}
+                was **denied** by {{ event.payload.user.username }}.
+                Manual intervention required.
+              report_channel: cert-war-room

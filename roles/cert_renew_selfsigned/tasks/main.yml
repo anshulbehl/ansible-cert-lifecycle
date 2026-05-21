@@ -1,0 +1,56 @@
+---
+- name: Back up existing certificate
+  ansible.builtin.copy:
+    src: "{{ cert_path }}"
+    dest: "{{ cert_path }}.bak.{{ ansible_date_time.epoch }}"
+    remote_src: true
+    mode: "0644"
+  become: true
+
+- name: Back up existing private key
+  ansible.builtin.copy:
+    src: "{{ cert_key_path }}"
+    dest: "{{ cert_key_path }}.bak.{{ ansible_date_time.epoch }}"
+    remote_src: true
+    mode: "0600"
+  become: true
+
+- name: Generate new private key
+  ansible.builtin.command:
+    cmd: >
+      openssl genrsa
+      -out {{ cert_key_path }}
+      {{ cert_renew_key_size }}
+  become: true
+
+- name: Generate new self-signed certificate
+  ansible.builtin.command:
+    cmd: >
+      openssl req -new -x509
+      -key {{ cert_key_path }}
+      -out {{ cert_path }}
+      -days {{ cert_renew_validity_days }}
+      -subj "/CN={{ cert_cn }}/O=CertDemo/OU=Development"
+      -addext "subjectAltName=DNS:{{ cert_cn }},DNS:localhost"
+  become: true
+
+- name: Set correct permissions on key
+  ansible.builtin.file:
+    path: "{{ cert_key_path }}"
+    mode: "0600"
+  become: true
+
+- name: Reload service to pick up new cert
+  ansible.builtin.command:
+    cmd: "podman exec {{ service_name }} nginx -s reload"
+  become: true
+  when: service_name is defined
+
+- name: Record renewal result
+  ansible.builtin.set_fact:
+    renewal_result:
+      cert_id: "{{ cert_id }}"
+      strategy: self-signed-regenerate
+      status: success
+      new_validity_days: "{{ cert_renew_validity_days }}"
+      timestamp: "{{ ansible_date_time.iso8601 }}"

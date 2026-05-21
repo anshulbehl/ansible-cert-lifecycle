@@ -1,0 +1,80 @@
+---
+- name: Back up existing certificate
+  ansible.builtin.copy:
+    src: "{{ cert_path }}"
+    dest: "{{ cert_path }}.bak.{{ ansible_date_time.epoch }}"
+    remote_src: true
+    mode: "0644"
+  become: true
+
+- name: Generate new private key
+  ansible.builtin.command:
+    cmd: >
+      openssl genrsa
+      -out {{ cert_key_path }}.new
+      2048
+  become: true
+
+- name: Generate CSR for IPA
+  ansible.builtin.command:
+    cmd: >
+      openssl req -new
+      -key {{ cert_key_path }}.new
+      -out /tmp/{{ cert_id }}.csr
+      -subj "/CN={{ cert_cn }}/O={{ ipa_realm }}"
+  become: true
+
+- name: Submit CSR to FreeIPA for signing
+  ansible.builtin.shell:
+    cmd: |
+      CSR=$(cat /tmp/{{ cert_id }}.csr)
+      podman exec {{ ipa_container_name }} bash -c "
+        echo '{{ ipa_admin_password }}' | kinit admin 2>/dev/null &&
+        ipa cert-request \
+          --principal=HTTP/{{ cert_cn }}@{{ ipa_realm }} \
+          --certificate-out=/tmp/{{ cert_id }}.crt \
+          <(echo '${CSR}')
+      "
+      podman cp {{ ipa_container_name }}:/tmp/{{ cert_id }}.crt /tmp/{{ cert_id }}.crt
+  become: true
+  register: ipa_cert_request
+
+- name: Replace old cert and key with new ones
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    remote_src: true
+    mode: "{{ item.mode }}"
+  become: true
+  loop:
+    - src: "/tmp/{{ cert_id }}.crt"
+      dest: "{{ cert_path }}"
+      mode: "0644"
+    - src: "{{ cert_key_path }}.new"
+      dest: "{{ cert_key_path }}"
+      mode: "0600"
+
+- name: Clean up temporary files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  become: true
+  loop:
+    - "/tmp/{{ cert_id }}.csr"
+    - "/tmp/{{ cert_id }}.crt"
+    - "{{ cert_key_path }}.new"
+
+- name: Reload service to pick up new cert
+  ansible.builtin.command:
+    cmd: "podman exec {{ service_name }} nginx -s reload"
+  become: true
+  when: service_name is defined
+
+- name: Record renewal result
+  ansible.builtin.set_fact:
+    renewal_result:
+      cert_id: "{{ cert_id }}"
+      strategy: ipa-certmonger-renew
+      status: success
+      issuer: "{{ ipa_realm }}"
+      timestamp: "{{ ansible_date_time.iso8601 }}"

@@ -1,0 +1,38 @@
+# Cert Demo Status Page
+server {
+    listen 80;
+    server_name _;
+
+    location / {
+        return 200 '<!DOCTYPE html>
+<html>
+<head><title>Cert Lifecycle Demo</title>
+<style>
+body { font-family: RedHatText, sans-serif; margin: 40px; background: #1a1a1a; color: #e0e0e0; }
+h1 { color: #ee0000; }
+table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+th, td { border: 1px solid #333; padding: 12px; text-align: left; }
+th { background: #2a2a2a; color: #ee0000; }
+.low { color: #92d400; }
+.medium { color: #f0ab00; }
+.critical { color: #ee0000; }
+</style></head>
+<body>
+<h1>AIOps Certificate Lifecycle Demo</h1>
+<p>Services with expiring certificates for AI-driven lifecycle management.</p>
+<table>
+<tr><th>Service</th><th>Port</th><th>Cert Type</th><th>Risk Level</th><th>Description</th></tr>
+{% for svc in demo_services %}
+<tr>
+  <td>{{ svc.name }}</td>
+  <td>{{ svc.port }}</td>
+  <td>{{ svc.cert_type }}</td>
+  <td class="{{ svc.risk_level }}">{{ svc.risk_level | upper }}</td>
+  <td>{{ svc.description }}</td>
+</tr>
+{% endfor %}
+</table>
+</body></html>';
+        add_header Content-Type text/html;
+    }
+}

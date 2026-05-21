@@ -1,0 +1,61 @@
+---
+- name: Install required packages
+  ansible.builtin.dnf:
+    name: "{{ provision_packages }}"
+    state: present
+  become: true
+
+- name: Create demo directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  become: true
+  loop:
+    - "{{ demo_base_dir }}"
+    - "{{ demo_certs_dir }}"
+    - "{{ demo_keystores_dir }}"
+    - "{{ demo_nginx_dir }}"
+    - "{{ demo_apps_dir }}"
+    - "{{ demo_dashboard_dir }}"
+
+- name: Start and enable podman socket
+  ansible.builtin.systemd:
+    name: podman.socket
+    state: started
+    enabled: true
+  become: true
+
+- name: Deploy FreeIPA container
+  ansible.builtin.include_tasks: deploy_ipa.yml
+
+- name: Generate certificates for each demo service
+  ansible.builtin.include_tasks: generate_certs.yml
+  loop: "{{ demo_services }}"
+  loop_control:
+    loop_var: service
+
+- name: Deploy demo service containers
+  ansible.builtin.include_tasks: deploy_services.yml
+
+- name: Deploy Splunk container and cert monitoring
+  ansible.builtin.include_tasks: deploy_splunk.yml
+
+- name: Deploy dashboard
+  ansible.builtin.include_tasks: deploy_dashboard.yml
+
+- name: Configure nginx reverse proxy on the host
+  ansible.builtin.include_tasks: configure_proxy.yml
+
+- name: Display demo service summary
+  ansible.builtin.debug:
+    msg: |
+      Demo environment ready.
+      Services deployed:
+      {% for svc in demo_services %}
+        - {{ svc.name }} ({{ svc.cert_type }}, expires in {{ svc.cert_days_valid }} days)
+          URL: https://{{ ansible_host }}:{{ svc.port }}
+      {% endfor %}
+      FreeIPA: https://{{ ansible_host }}:443
+      Splunk: http://{{ ansible_host }}:{{ splunk_web_port }}
+      Dashboard: http://{{ ansible_host }}:{{ dashboard_port }}

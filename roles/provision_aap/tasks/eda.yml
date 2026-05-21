@@ -1,0 +1,110 @@
+---
+- name: Create EDA decision environment
+  ansible.eda.decision_environment:
+    name: "{{ aap_eda_decision_env_name }}"
+    description: "Decision environment for cert lifecycle event processing"
+    image_url: "{{ aap_eda_decision_env_image }}"
+    organization_name: "{{ aap_organization }}"
+    state: present
+    controller_host: "{{ aap_host }}"
+    controller_username: "{{ aap_username }}"
+    controller_password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+
+- name: Create EDA project
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/eda/v1/projects/"
+    method: POST
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    body_format: json
+    body:
+      name: "Cert Lifecycle EDA"
+      description: "Rulebooks for cert expiry events and Mattermost approvals"
+      url: "{{ aap_project_scm_url }}"
+      organization_id: "{{ aap_org_id }}"
+    status_code: [200, 201]
+  register: eda_project
+  changed_when: eda_project.status == 201
+  failed_when:
+    - eda_project.status not in [200, 201]
+    - "'already exists' not in (eda_project.json | default({}) | string)"
+
+- name: Get EDA project ID
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/eda/v1/projects/?name=Cert+Lifecycle+EDA"
+    method: GET
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    status_code: 200
+  register: eda_project_lookup
+
+- name: Get EDA decision environment ID
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/eda/v1/decision-environments/?name={{ aap_eda_decision_env_name | urlencode }}"
+    method: GET
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    status_code: 200
+  register: de_lookup
+
+- name: Set EDA IDs
+  ansible.builtin.set_fact:
+    eda_project_id: "{{ eda_project_lookup.json.results[0].id }}"
+    eda_de_id: "{{ de_lookup.json.results[0].id }}"
+
+- name: Create EDA activation for cert expiry events
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/eda/v1/activations/"
+    method: POST
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    body_format: json
+    body:
+      name: "Cert Expiry Events"
+      description: "Handles Splunk ITSI cert expiry alerts and triggers the renewal pipeline"
+      project_id: "{{ eda_project_id }}"
+      rulebook_name: cert_expiry_events.yml
+      decision_environment_id: "{{ eda_de_id }}"
+      organization_id: "{{ aap_org_id }}"
+      is_enabled: true
+      restart_policy: always
+    status_code: [200, 201]
+  register: eda_cert_activation
+  changed_when: eda_cert_activation.status == 201
+  failed_when:
+    - eda_cert_activation.status not in [200, 201]
+    - "'already exists' not in (eda_cert_activation.json | default({}) | string)"
+
+- name: Create EDA activation for Mattermost approvals
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/eda/v1/activations/"
+    method: POST
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    body_format: json
+    body:
+      name: "Mattermost Cert Approvals"
+      description: "Handles approval reactions from Mattermost war room for critical cert renewals"
+      project_id: "{{ eda_project_id }}"
+      rulebook_name: mattermost_approval.yml
+      decision_environment_id: "{{ eda_de_id }}"
+      organization_id: "{{ aap_org_id }}"
+      is_enabled: true
+      restart_policy: always
+    status_code: [200, 201]
+  register: eda_mm_activation
+  changed_when: eda_mm_activation.status == 201
+  failed_when:
+    - eda_mm_activation.status not in [200, 201]
+    - "'already exists' not in (eda_mm_activation.json | default({}) | string)"

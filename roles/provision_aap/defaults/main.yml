@@ -1,0 +1,17 @@
+---
+aap_host: "https://98.92.35.128"
+aap_username: admin
+aap_password: "{{ vault_aap_password | default('ansible123') }}"
+aap_validate_certs: false
+aap_organization: Default
+
+aap_project_name: Cert Lifecycle Management
+aap_project_scm_url: "http://gitea:3000/student/ansible-cert-lifecycle.git"
+
+aap_inventory_name: Cert Demo Hosts
+aap_ee_name: Default execution environment
+
+aap_workflow_name: Certificate Lifecycle Pipeline
+
+aap_eda_decision_env_name: Cert Lifecycle DE
+aap_eda_decision_env_image: "registry.redhat.io/ansible-automation-platform-25/de-supported-rhel9:latest"

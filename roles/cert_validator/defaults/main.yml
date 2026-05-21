@@ -1,0 +1,3 @@
+---
+cert_validator_timeout: 10
+cert_validator_min_days_valid: 30

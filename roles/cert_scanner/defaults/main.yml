@@ -1,0 +1,21 @@
+---
+cert_scanner_nginx_conf_paths:
+  - /etc/nginx/conf.d
+  - /etc/nginx/sites-enabled
+
+cert_scanner_httpd_conf_paths:
+  - /etc/httpd/conf.d
+
+cert_scanner_keystore_paths:
+  - /opt/cert-demo/keystores
+  - /opt/app
+  - /etc/pki/java
+
+cert_scanner_keystore_extensions:
+  - jks
+  - p12
+  - pfx
+
+cert_scanner_keystore_password: changeit
+
+cert_scanner_output_dir: /tmp/cert-scan-results

@@ -1,0 +1,221 @@
+---
+- name: Create Cert Discovery Scanner job template
+  ansible.controller.job_template:
+    name: Cert Discovery Scanner
+    description: "Scans all hosts for TLS certificates (PEM and Java keystores)"
+    job_type: run
+    organization: "{{ aap_organization }}"
+    inventory: "{{ aap_inventory_name }}"
+    project: "{{ aap_project_name }}"
+    playbook: playbooks/scan.yml
+    execution_environment: "{{ aap_ee_name }}"
+    credentials:
+      - Cert Demo Machine
+    extra_vars:
+      demo_services: "{{ demo_services }}"
+    state: present
+    controller_host: "{{ aap_host }}"
+    controller_username: "{{ aap_username }}"
+    controller_password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+
+- name: Create Cert AI Classifier job template
+  ansible.controller.job_template:
+    name: Cert AI Classifier
+    description: "Sends cert data to LLM for risk classification and strategy recommendation"
+    job_type: run
+    organization: "{{ aap_organization }}"
+    inventory: "{{ aap_inventory_name }}"
+    project: "{{ aap_project_name }}"
+    playbook: playbooks/classify.yml
+    execution_environment: "{{ aap_ee_name }}"
+    credentials:
+      - Cert Demo Machine
+      - "LLM - {{ llm_provider | capitalize }}"
+    extra_vars:
+      llm_provider: "{{ llm_provider }}"
+      demo_services: "{{ demo_services }}"
+    state: present
+    controller_host: "{{ aap_host }}"
+    controller_username: "{{ aap_username }}"
+    controller_password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+
+- name: Create Renew Self-Signed job template
+  ansible.controller.job_template:
+    name: Renew Self-Signed Certificate
+    description: "Regenerates a self-signed certificate and reloads the service"
+    job_type: run
+    organization: "{{ aap_organization }}"
+    inventory: "{{ aap_inventory_name }}"
+    project: "{{ aap_project_name }}"
+    playbook: playbooks/renew_self_signed.yml
+    execution_environment: "{{ aap_ee_name }}"
+    credentials:
+      - Cert Demo Machine
+    ask_variables_on_launch: true
+    survey_enabled: true
+    survey_spec:
+      name: Self-Signed Cert Renewal
+      description: Parameters for self-signed certificate renewal
+      spec:
+        - type: text
+          question_name: Certificate ID
+          question_description: Identifier for the certificate to renew
+          variable: cert_id
+          required: true
+        - type: text
+          question_name: Common Name (CN)
+          question_description: The CN for the new certificate
+          variable: cert_cn
+          required: true
+        - type: text
+          question_name: Service Name
+          question_description: Container name to reload after renewal
+          variable: service_name
+          required: true
+    state: present
+    controller_host: "{{ aap_host }}"
+    controller_username: "{{ aap_username }}"
+    controller_password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+
+- name: Create Renew IPA Certificate job template
+  ansible.controller.job_template:
+    name: Renew IPA Certificate
+    description: "Requests a new certificate from FreeIPA and reloads the service"
+    job_type: run
+    organization: "{{ aap_organization }}"
+    inventory: "{{ aap_inventory_name }}"
+    project: "{{ aap_project_name }}"
+    playbook: playbooks/renew_ipa.yml
+    execution_environment: "{{ aap_ee_name }}"
+    credentials:
+      - Cert Demo Machine
+    ask_variables_on_launch: true
+    survey_enabled: true
+    survey_spec:
+      name: IPA Cert Renewal
+      description: Parameters for IPA certificate renewal
+      spec:
+        - type: text
+          question_name: Certificate ID
+          variable: cert_id
+          required: true
+        - type: text
+          question_name: Common Name (CN)
+          variable: cert_cn
+          required: true
+        - type: text
+          question_name: Service Name
+          variable: service_name
+          required: true
+    state: present
+    controller_host: "{{ aap_host }}"
+    controller_username: "{{ aap_username }}"
+    controller_password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+
+- name: Create Renew Java Keystore job template
+  ansible.controller.job_template:
+    name: Renew Java Keystore Certificate
+    description: "Issues cert from IPA, imports to Java keystore, restarts application"
+    job_type: run
+    organization: "{{ aap_organization }}"
+    inventory: "{{ aap_inventory_name }}"
+    project: "{{ aap_project_name }}"
+    playbook: playbooks/renew_keystore.yml
+    execution_environment: "{{ aap_ee_name }}"
+    credentials:
+      - Cert Demo Machine
+    ask_variables_on_launch: true
+    survey_enabled: true
+    survey_spec:
+      name: Keystore Cert Renewal
+      description: Parameters for Java keystore certificate renewal
+      spec:
+        - type: text
+          question_name: Certificate ID
+          variable: cert_id
+          required: true
+        - type: text
+          question_name: Common Name (CN)
+          variable: cert_cn
+          required: true
+        - type: text
+          question_name: Service Name (container)
+          variable: service_name
+          required: true
+        - type: text
+          question_name: Service Port
+          variable: service_port
+          required: true
+          default: "8443"
+    state: present
+    controller_host: "{{ aap_host }}"
+    controller_username: "{{ aap_username }}"
+    controller_password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+
+- name: Create Validate Cert Renewal job template
+  ansible.controller.job_template:
+    name: Validate Cert Renewal
+    description: "Post-renewal TLS handshake, chain, and service health checks"
+    job_type: run
+    organization: "{{ aap_organization }}"
+    inventory: "{{ aap_inventory_name }}"
+    project: "{{ aap_project_name }}"
+    playbook: playbooks/validate.yml
+    execution_environment: "{{ aap_ee_name }}"
+    credentials:
+      - Cert Demo Machine
+    extra_vars:
+      demo_services: "{{ demo_services }}"
+    state: present
+    controller_host: "{{ aap_host }}"
+    controller_username: "{{ aap_username }}"
+    controller_password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+
+- name: Create Notify Mattermost job template
+  ansible.controller.job_template:
+    name: Notify Mattermost
+    description: "Posts certificate lifecycle notifications to Mattermost"
+    job_type: run
+    organization: "{{ aap_organization }}"
+    inventory: "{{ aap_inventory_name }}"
+    project: "{{ aap_project_name }}"
+    playbook: playbooks/notify.yml
+    execution_environment: "{{ aap_ee_name }}"
+    credentials:
+      - Cert Demo Machine
+      - Mattermost Cert Lifecycle
+    ask_variables_on_launch: true
+    state: present
+    controller_host: "{{ aap_host }}"
+    controller_username: "{{ aap_username }}"
+    controller_password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+  when: mattermost_webhook_url | length > 0
+
+- name: Create Full Pipeline job template
+  ansible.controller.job_template:
+    name: Certificate Lifecycle Full Pipeline
+    description: "End-to-end: Scan, Classify, Renew by risk, Validate, Report"
+    job_type: run
+    organization: "{{ aap_organization }}"
+    inventory: "{{ aap_inventory_name }}"
+    project: "{{ aap_project_name }}"
+    playbook: playbooks/full_pipeline.yml
+    execution_environment: "{{ aap_ee_name }}"
+    credentials:
+      - Cert Demo Machine
+      - "LLM - {{ llm_provider | capitalize }}"
+    extra_vars:
+      llm_provider: "{{ llm_provider }}"
+      demo_services: "{{ demo_services }}"
+    state: present
+    controller_host: "{{ aap_host }}"
+    controller_username: "{{ aap_username }}"
+    controller_password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"

@@ -1,0 +1,108 @@
+---
+# EC2 Provisioning
+aws_region: us-east-1
+aws_profile: mfa
+ec2_instance_type: m5.xlarge
+ec2_ami: ami-031486069c5cdd00e  # RHEL-9.7.0 us-east-1
+ec2_key_name: cert-lifecycle-demo-key
+ec2_security_group: cert-demo-sg
+ec2_subnet_id: ""
+ec2_instance_name: cert-lifecycle-demo
+ec2_volume_size: 50
+
+# IPA Configuration
+ipa_domain: certdemo.local
+ipa_realm: CERTDEMO.LOCAL
+ipa_admin_password: "{{ vault_ipa_admin_password | default('RedHat123!') }}"
+ipa_ds_password: "{{ vault_ipa_ds_password | default('RedHat123!') }}"
+ipa_container_name: freeipa-server
+ipa_container_image: quay.io/freeipa/freeipa-server:rocky-9
+
+# Demo Services (containers on the EC2 host)
+demo_services:
+  - name: webserver-dev
+    description: Development web app (self-signed cert, low risk)
+    image: docker.io/library/nginx:latest
+    port: 8443
+    cert_type: self-signed
+    cert_days_valid: 2
+    cert_cn: dev.certdemo.local
+    risk_level: low
+
+  - name: webserver-internal
+    description: Internal dashboard (IPA-issued cert, medium risk)
+    image: docker.io/library/nginx:latest
+    port: 8444
+    cert_type: ipa
+    cert_days_valid: 5
+    cert_cn: internal.certdemo.local
+    risk_level: medium
+
+  - name: api-server
+    description: Production API (IPA-issued cert in Java keystore, critical)
+    image: docker.io/library/eclipse-temurin:21-jdk
+    port: 8445
+    cert_type: keystore
+    cert_days_valid: 3
+    cert_cn: api.certdemo.local
+    keystore_password: "{{ vault_keystore_password | default('changeit') }}"
+    risk_level: critical
+
+  - name: internal-api
+    description: Internal microservice (IPA-issued cert in Java keystore, medium risk)
+    image: docker.io/library/eclipse-temurin:21-jdk
+    port: 8446
+    cert_type: keystore
+    cert_days_valid: 7
+    cert_cn: internal-api.certdemo.local
+    keystore_password: "{{ vault_keystore_password | default('changeit') }}"
+    risk_level: medium
+
+# LLM Configuration (all providers use OpenAI-compatible API)
+llm_provider: granite  # granite | claude | gemini
+
+# Granite (RHEL AI, local, no API key needed)
+granite_endpoint: "https://rhel-ai:8443/v1/chat/completions"
+granite_model: granite-8b-lab-v1
+
+# Claude (via OpenAI-compatible proxy)
+claude_endpoint: "{{ vault_claude_endpoint | default('https://api.anthropic.com/v1/chat/completions') }}"
+claude_api_key: "{{ vault_claude_api_key | default('') }}"
+claude_model: claude-sonnet-4-6-20250514
+
+# Gemini (via OpenAI-compatible proxy)
+gemini_endpoint: "{{ vault_gemini_endpoint | default('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions') }}"
+gemini_api_key: "{{ vault_gemini_api_key | default('') }}"
+
+# Mattermost
+mattermost_webhook_url: "{{ vault_mattermost_webhook_url | default('') }}"
+mattermost_channel: cert-lifecycle
+mattermost_war_room_channel: cert-war-room
+
+# Cert Thresholds
+cert_expiry_warning_days: 30
+cert_expiry_critical_days: 7
+
+# Splunk
+splunk_container_name: splunk
+splunk_container_image: docker.io/splunk/splunk:latest
+splunk_admin_password: "{{ vault_splunk_password | default('RedHat123!') }}"
+splunk_web_port: 8000
+splunk_hec_port: 8088
+splunk_hec_token: "{{ vault_splunk_hec_token | default('cert-demo-hec-token') }}"
+splunk_cert_check_interval: 30
+
+# Dashboard
+dashboard_port: 8080
+
+# EDA
+eda_webhook_host: localhost
+eda_webhook_port: 5000
+
+# Paths on the demo host
+demo_base_dir: /opt/cert-demo
+demo_certs_dir: "{{ demo_base_dir }}/certs"
+demo_keystores_dir: "{{ demo_base_dir }}/keystores"
+demo_nginx_dir: "{{ demo_base_dir }}/nginx"
+demo_apps_dir: "{{ demo_base_dir }}/apps"
+demo_dashboard_dir: "{{ demo_base_dir }}/dashboard"

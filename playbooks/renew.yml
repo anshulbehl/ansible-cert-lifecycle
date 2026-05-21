@@ -1,0 +1,61 @@
+---
+- name: Renew certificates based on AI classification
+  hosts: demo_host
+  gather_facts: true
+
+  pre_tasks:
+    - name: Verify classifications are available
+      ansible.builtin.assert:
+        that: cert_classifications is defined and cert_classifications | length > 0
+        fail_msg: "No cert classifications found. Run classify.yml first."
+
+  tasks:
+    - name: Process low-risk certs (auto-renew, no approval)
+      ansible.builtin.include_role:
+        name: cert_renew_selfsigned
+      vars:
+        cert_id: "{{ item.cert_id }}"
+        cert_cn: "{{ item.cert_id | regex_replace('^.*-', '') }}.certdemo.local"
+        cert_path: "{{ demo_certs_dir }}/{{ item.cert_id | regex_replace('-.*$', '') }}/tls.crt"
+        cert_key_path: "{{ demo_certs_dir }}/{{ item.cert_id | regex_replace('-.*$', '') }}/tls.key"
+        service_name: "{{ item.cert_id | regex_replace('-.*$', '') }}"
+      loop: "{{ cert_classifications | selectattr('risk_level', 'equalto', 'low') | list }}"
+      loop_control:
+        label: "{{ item.cert_id }}"
+
+    - name: Notify on low-risk auto-renewals
+      ansible.builtin.include_role:
+        name: cert_reporter
+      vars:
+        report_message: |
+          :large_green_circle: **Auto-renewed {{ cert_classifications | selectattr('risk_level', 'equalto', 'low') | list | length }} low-risk certificates**
+          No approval required. Validation pending.
+      when: cert_classifications | selectattr('risk_level', 'equalto', 'low') | list | length > 0
+
+    - name: Process medium-risk certs (IPA renewal, AAP approval expected)
+      ansible.builtin.include_role:
+        name: cert_renew_ipa
+      vars:
+        cert_id: "{{ item.cert_id }}"
+        cert_cn: "{{ item.cert_id | regex_replace('^.*-', '') }}.certdemo.local"
+        cert_path: "{{ demo_certs_dir }}/{{ item.cert_id | regex_replace('-.*$', '') }}/tls.crt"
+        cert_key_path: "{{ demo_certs_dir }}/{{ item.cert_id | regex_replace('-.*$', '') }}/tls.key"
+        service_name: "{{ item.cert_id | regex_replace('-.*$', '') }}"
+      loop: "{{ cert_classifications | selectattr('risk_level', 'equalto', 'medium') | selectattr('renewal_strategy', 'equalto', 'ipa-certmonger-renew') | list }}"
+      loop_control:
+        label: "{{ item.cert_id }}"
+
+    - name: Process critical certs (keystore renewal, war room approval expected)
+      ansible.builtin.include_role:
+        name: cert_renew_keystore
+      vars:
+        cert_id: "{{ item.cert_id }}"
+        cert_cn: "{{ item.cert_id | regex_replace('^.*-', '') }}.certdemo.local"
+        keystore_path: "{{ demo_keystores_dir }}/{{ item.cert_id | regex_replace('-.*$', '') }}/keystore.jks"
+        keystore_password: "{{ vault_keystore_password | default('changeit') }}"
+        keystore_alias: "{{ item.cert_id | regex_replace('-.*$', '') }}"
+        service_name: "{{ item.cert_id | regex_replace('-.*$', '') }}"
+        service_port: "{{ demo_services | selectattr('name', 'equalto', item.cert_id | regex_replace('-.*$', '')) | map(attribute='port') | first | default('8443') }}"
+      loop: "{{ cert_classifications | selectattr('renewal_strategy', 'equalto', 'ipa-issue-keytool-import') | list }}"
+      loop_control:
+        label: "{{ item.cert_id }}"

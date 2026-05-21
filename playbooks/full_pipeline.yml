@@ -1,0 +1,90 @@
+---
+- name: "Certificate Lifecycle Pipeline: Scan > Classify > Renew > Validate > Report"
+  hosts: demo_host
+  gather_facts: true
+
+  tasks:
+    # Phase 1: Discovery
+    - name: "PHASE 1: Scan all certificates"
+      ansible.builtin.include_role:
+        name: cert_scanner
+
+    - name: Report scan results
+      ansible.builtin.include_role:
+        name: cert_reporter
+      vars:
+        report_message: "{{ lookup('template', 'roles/cert_reporter/templates/scan_summary.j2') }}"
+
+    # Phase 2: AI Classification
+    - name: "PHASE 2: Classify certificates with AI ({{ llm_provider }})"
+      ansible.builtin.include_role:
+        name: cert_classifier
+
+    - name: Report classification results
+      ansible.builtin.include_role:
+        name: cert_reporter
+      vars:
+        report_message: "{{ lookup('template', 'roles/cert_reporter/templates/classification_summary.j2') }}"
+
+    # Phase 3: Renewal (by risk level)
+    - name: "PHASE 3a: Auto-renew low-risk certificates"
+      ansible.builtin.include_role:
+        name: cert_renew_selfsigned
+      vars:
+        cert_id: "{{ item.cert_id }}"
+        cert_cn: "{{ (demo_services | selectattr('name', 'search', item.cert_id) | first).cert_cn | default(item.cert_id + '.certdemo.local') }}"
+        cert_path: "{{ demo_certs_dir }}/{{ (demo_services | selectattr('name', 'search', item.cert_id) | first).name | default(item.cert_id) }}/tls.crt"
+        cert_key_path: "{{ demo_certs_dir }}/{{ (demo_services | selectattr('name', 'search', item.cert_id) | first).name | default(item.cert_id) }}/tls.key"
+        service_name: "{{ (demo_services | selectattr('name', 'search', item.cert_id) | first).name | default(item.cert_id) }}"
+      loop: "{{ cert_classifications | selectattr('renewal_strategy', 'equalto', 'self-signed-regenerate') | list }}"
+      loop_control:
+        label: "{{ item.cert_id }} (LOW)"
+
+    - name: Report low-risk renewals
+      ansible.builtin.include_role:
+        name: cert_reporter
+      vars:
+        report_message: |
+          :large_green_circle: **Auto-renewed {{ cert_classifications | selectattr('renewal_strategy', 'equalto', 'self-signed-regenerate') | list | length }} low-risk certificates.** No approval needed.
+
+    - name: "PHASE 3b: Renew medium-risk certificates (IPA)"
+      ansible.builtin.include_role:
+        name: cert_renew_ipa
+      vars:
+        cert_id: "{{ item.cert_id }}"
+        cert_cn: "{{ (demo_services | selectattr('name', 'search', item.cert_id) | first).cert_cn | default(item.cert_id + '.certdemo.local') }}"
+        cert_path: "{{ demo_certs_dir }}/{{ (demo_services | selectattr('name', 'search', item.cert_id) | first).name | default(item.cert_id) }}/tls.crt"
+        cert_key_path: "{{ demo_certs_dir }}/{{ (demo_services | selectattr('name', 'search', item.cert_id) | first).name | default(item.cert_id) }}/tls.key"
+        service_name: "{{ (demo_services | selectattr('name', 'search', item.cert_id) | first).name | default(item.cert_id) }}"
+      loop: "{{ cert_classifications | selectattr('renewal_strategy', 'equalto', 'ipa-certmonger-renew') | list }}"
+      loop_control:
+        label: "{{ item.cert_id }} (MEDIUM)"
+
+    - name: "PHASE 3c: Renew critical certificates (Java Keystore)"
+      ansible.builtin.include_role:
+        name: cert_renew_keystore
+      vars:
+        cert_id: "{{ item.cert_id }}"
+        cert_cn: "{{ (demo_services | selectattr('name', 'search', item.cert_id) | first).cert_cn | default(item.cert_id + '.certdemo.local') }}"
+        keystore_path: "{{ demo_keystores_dir }}/{{ (demo_services | selectattr('name', 'search', item.cert_id) | first).name | default(item.cert_id) }}/keystore.jks"
+        keystore_password: "{{ (demo_services | selectattr('name', 'search', item.cert_id) | first).keystore_password | default('changeit') }}"
+        keystore_alias: "{{ (demo_services | selectattr('name', 'search', item.cert_id) | first).name | default(item.cert_id) }}"
+        service_name: "{{ (demo_services | selectattr('name', 'search', item.cert_id) | first).name | default(item.cert_id) }}"
+        service_port: "{{ (demo_services | selectattr('name', 'search', item.cert_id) | first).port | default('8443') }}"
+      loop: "{{ cert_classifications | selectattr('renewal_strategy', 'equalto', 'ipa-issue-keytool-import') | list }}"
+      loop_control:
+        label: "{{ item.cert_id }} (CRITICAL)"
+
+    # Phase 4: Validation
+    - name: "PHASE 4: Validate all renewals"
+      ansible.builtin.include_role:
+        name: cert_validator
+      vars:
+        certs_to_validate: "{{ demo_services }}"
+
+    # Phase 5: Final Report
+    - name: "PHASE 5: Post final summary"
+      ansible.builtin.include_role:
+        name: cert_reporter
+      vars:
+        report_message: "{{ lookup('template', 'roles/cert_reporter/templates/final_summary.j2') }}"

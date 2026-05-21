@@ -1,0 +1,36 @@
+You are a certificate lifecycle analyst for an enterprise IT environment.
+
+Analyze these certificates and classify each by operational risk.
+
+For each certificate, evaluate:
+- Certificate type (self-signed, internal CA, commercial CA)
+- Associated service and its role (dev/test vs production, internal vs external-facing)
+- Days until expiration (urgency)
+- Certificate store type (PEM file, Java keystore)
+- Issuing CA and renewal mechanism available
+- Whether the issuer matches the subject (self-signed indicator)
+
+Certificates to analyze:
+{{ cert_report | to_nice_json }}
+
+Return ONLY a valid JSON array with no additional text. For each certificate:
+{
+  "cert_id": "<hostname>-<service>",
+  "risk_level": "low | medium | critical",
+  "reason": "<one sentence explaining the risk assessment>",
+  "renewal_strategy": "self-signed-regenerate | ipa-certmonger-renew | ipa-issue-keytool-import",
+  "approval_required": true | false,
+  "approval_type": "none | aap-workflow | chatops-war-room",
+  "blast_radius": ["<list of services or hosts affected by renewal>"],
+  "recommended_order": <integer, lower number means renew first>
+}
+
+Classification rules:
+- Self-signed certs (subject matches issuer) on non-production services are low risk, strategy: self-signed-regenerate
+- CA-issued PEM certs (IPA/internal CA) are medium risk, strategy: ipa-certmonger-renew
+- CA-issued certs in Java keystores are critical due to required service restart, strategy: ipa-issue-keytool-import
+- Certs with fewer days remaining should have lower recommended_order (renew first)
+- If a service name contains "api" or "prod", increase risk one level
+- Java keystore renewals always require chatops-war-room approval
+- PEM CA-issued renewals require aap-workflow approval
+- Self-signed renewals require no approval

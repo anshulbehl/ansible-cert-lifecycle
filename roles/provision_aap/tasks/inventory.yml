@@ -1,0 +1,62 @@
+---
+- name: Create inventory
+  ansible.controller.inventory:
+    name: "{{ aap_inventory_name }}"
+    description: "Hosts with TLS certificates managed by the cert lifecycle pipeline"
+    organization: "{{ aap_organization }}"
+    state: present
+    controller_host: "{{ aap_host }}"
+    controller_username: "{{ aap_username }}"
+    controller_password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+
+- name: Add demo host to inventory
+  ansible.controller.host:
+    name: cert-demo
+    description: "EC2 instance running demo services with expiring certificates"
+    inventory: "{{ aap_inventory_name }}"
+    state: present
+    enabled: true
+    variables:
+      ansible_host: "{{ ec2_public_ip | default(hostvars['cert-demo']['ansible_host'] | default('127.0.0.1')) }}"
+      ansible_user: ec2-user
+      demo_base_dir: "{{ demo_base_dir }}"
+      demo_certs_dir: "{{ demo_certs_dir }}"
+      demo_keystores_dir: "{{ demo_keystores_dir }}"
+      demo_nginx_dir: "{{ demo_nginx_dir }}"
+      demo_apps_dir: "{{ demo_apps_dir }}"
+      ipa_container_name: "{{ ipa_container_name }}"
+      ipa_realm: "{{ ipa_realm }}"
+      ipa_admin_password: "{{ ipa_admin_password }}"
+      splunk_hec_port: "{{ splunk_hec_port }}"
+      splunk_hec_token: "{{ splunk_hec_token }}"
+    controller_host: "{{ aap_host }}"
+    controller_username: "{{ aap_username }}"
+    controller_password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+
+- name: Create web_servers group
+  ansible.controller.group:
+    name: web_servers
+    description: "Hosts running nginx/httpd with PEM certificates"
+    inventory: "{{ aap_inventory_name }}"
+    hosts:
+      - cert-demo
+    state: present
+    controller_host: "{{ aap_host }}"
+    controller_username: "{{ aap_username }}"
+    controller_password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+
+- name: Create app_servers group
+  ansible.controller.group:
+    name: app_servers
+    description: "Hosts running Java apps with keystore certificates"
+    inventory: "{{ aap_inventory_name }}"
+    hosts:
+      - cert-demo
+    state: present
+    controller_host: "{{ aap_host }}"
+    controller_username: "{{ aap_username }}"
+    controller_password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"

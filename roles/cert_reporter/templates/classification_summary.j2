@@ -1,0 +1,9 @@
+### AI Certificate Classification ({{ llm_provider }})
+
+{% for cert in cert_classifications %}
+{% if cert.risk_level == 'critical' %}:red_circle:{% elif cert.risk_level == 'medium' %}:large_orange_circle:{% else %}:large_green_circle:{% endif %} **{{ cert.cert_id }}** - {{ cert.risk_level | upper }}
+> {{ cert.reason }}
+> Strategy: `{{ cert.renewal_strategy }}` | Approval: `{{ cert.approval_type }}`
+{% if cert.blast_radius | length > 0 %}> Blast radius: {{ cert.blast_radius | join(', ') }}{% endif %}
+
+{% endfor %}

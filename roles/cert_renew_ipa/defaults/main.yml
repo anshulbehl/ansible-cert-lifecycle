@@ -1,0 +1,3 @@
+---
+cert_renew_ipa_timeout: 120
+cert_renew_ipa_poll_interval: 5

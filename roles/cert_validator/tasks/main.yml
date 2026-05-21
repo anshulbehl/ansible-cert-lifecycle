@@ -1,0 +1,34 @@
+---
+- name: Validate PEM certificates via TLS handshake
+  ansible.builtin.include_tasks: validate_pem.yml
+  loop: "{{ certs_to_validate | selectattr('store', 'equalto', 'filesystem') | list }}"
+  loop_control:
+    loop_var: cert
+
+- name: Validate Java keystore certificates
+  ansible.builtin.include_tasks: validate_keystore.yml
+  loop: "{{ certs_to_validate | selectattr('store', 'equalto', 'java-keystore') | list }}"
+  loop_control:
+    loop_var: cert
+
+- name: Compile validation summary
+  ansible.builtin.set_fact:
+    validation_summary:
+      timestamp: "{{ ansible_date_time.iso8601 }}"
+      total_validated: "{{ validation_results | default([]) | length }}"
+      passed: "{{ validation_results | default([]) | selectattr('status', 'equalto', 'pass') | list | length }}"
+      failed: "{{ validation_results | default([]) | selectattr('status', 'equalto', 'fail') | list | length }}"
+      results: "{{ validation_results | default([]) }}"
+
+- name: Display validation summary
+  ansible.builtin.debug:
+    msg: |
+      Validation Summary:
+      Total: {{ validation_summary.total_validated }}
+      Passed: {{ validation_summary.passed }}
+      Failed: {{ validation_summary.failed }}
+      {% for result in validation_summary.results %}
+        {{ result.cert_id }}: {{ result.status | upper }}
+          {% if result.status == 'fail' %}Reason: {{ result.reason }}{% endif %}
+          New expiry: {{ result.new_expiry | default('N/A') }}
+      {% endfor %}

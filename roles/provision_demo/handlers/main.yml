@@ -1,0 +1,6 @@
+---
+- name: Restart nginx proxy
+  ansible.builtin.systemd:
+    name: nginx
+    state: restarted
+  become: true

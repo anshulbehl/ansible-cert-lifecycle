@@ -1,0 +1,28 @@
+---
+- name: Create credentials
+  ansible.builtin.include_tasks: credentials.yml
+
+- name: Create project
+  ansible.builtin.include_tasks: project.yml
+
+- name: Create inventory and hosts
+  ansible.builtin.include_tasks: inventory.yml
+
+- name: Create job templates
+  ansible.builtin.include_tasks: job_templates.yml
+
+- name: Create workflow template
+  ansible.builtin.include_tasks: workflow.yml
+
+- name: Configure EDA
+  ansible.builtin.include_tasks: eda.yml
+
+- name: Display AAP setup summary
+  ansible.builtin.debug:
+    msg: |
+      AAP configured for Cert Lifecycle Demo:
+        Project: {{ aap_project_name }}
+        Inventory: {{ aap_inventory_name }}
+        Job Templates: 7 (scan, classify, renew x3, validate, notify)
+        Workflow: {{ aap_workflow_name }}
+        EDA Activations: 2 (cert events, mattermost approval)

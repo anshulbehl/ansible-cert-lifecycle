@@ -1,0 +1,31 @@
+---
+- name: Scan for PEM certificates in nginx/httpd configs
+  ansible.builtin.include_tasks: scan_web_certs.yml
+
+- name: Scan for Java keystores
+  ansible.builtin.include_tasks: scan_keystores.yml
+
+- name: Build combined cert report
+  ansible.builtin.set_fact:
+    cert_scan_report:
+      scan_timestamp: "{{ ansible_date_time.iso8601 }}"
+      hostname: "{{ inventory_hostname }}"
+      certs_found: "{{ web_certs_found | default([]) + keystore_certs_found | default([]) }}"
+      total_certs: "{{ (web_certs_found | default([]) + keystore_certs_found | default([])) | length }}"
+      expiring_soon: "{{ (web_certs_found | default([]) + keystore_certs_found | default([])) | selectattr('days_remaining', 'lt', cert_expiry_warning_days) | list | length }}"
+      expired: "{{ (web_certs_found | default([]) + keystore_certs_found | default([])) | selectattr('days_remaining', 'lt', 0) | list | length }}"
+
+- name: Save cert report to file
+  ansible.builtin.copy:
+    content: "{{ cert_scan_report | to_nice_json }}"
+    dest: "{{ cert_scanner_output_dir }}/{{ inventory_hostname }}.json"
+    mode: "0644"
+  become: true
+
+- name: Display scan summary
+  ansible.builtin.debug:
+    msg: >
+      Scanned {{ inventory_hostname }}:
+      {{ cert_scan_report.total_certs }} certs found,
+      {{ cert_scan_report.expiring_soon }} expiring within {{ cert_expiry_warning_days }} days,
+      {{ cert_scan_report.expired }} already expired.

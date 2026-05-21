@@ -1,0 +1,45 @@
+---
+- name: Create nginx configs for web services
+  ansible.builtin.template:
+    src: nginx-ssl.conf.j2
+    dest: "{{ demo_nginx_dir }}/{{ item.name }}.conf"
+    mode: "0644"
+  become: true
+  loop: "{{ demo_services | selectattr('cert_type', 'in', ['self-signed', 'ipa']) }}"
+
+- name: Create simple Java HTTPS server app for keystore services
+  ansible.builtin.template:
+    src: java-https-server.sh.j2
+    dest: "{{ demo_apps_dir }}/{{ item.name }}-start.sh"
+    mode: "0755"
+  become: true
+  loop: "{{ demo_services | selectattr('cert_type', 'equalto', 'keystore') }}"
+
+- name: Start nginx containers for web services
+  containers.podman.podman_container:
+    name: "{{ item.name }}"
+    image: "{{ item.image }}"
+    state: started
+    restart_policy: always
+    ports:
+      - "{{ item.port }}:443"
+    volumes:
+      - "{{ demo_certs_dir }}/{{ item.name }}:/etc/nginx/certs:ro,Z"
+      - "{{ demo_nginx_dir }}/{{ item.name }}.conf:/etc/nginx/conf.d/default.conf:ro,Z"
+  become: true
+  loop: "{{ demo_services | selectattr('cert_type', 'in', ['self-signed', 'ipa']) }}"
+
+- name: Start Java app containers for keystore services
+  containers.podman.podman_container:
+    name: "{{ item.name }}"
+    image: "{{ item.image }}"
+    state: started
+    restart_policy: always
+    ports:
+      - "{{ item.port }}:8443"
+    volumes:
+      - "{{ demo_keystores_dir }}/{{ item.name }}:/app/keystore:ro,Z"
+      - "{{ demo_apps_dir }}/{{ item.name }}-start.sh:/app/start.sh:ro,Z"
+    command: /bin/bash /app/start.sh
+  become: true
+  loop: "{{ demo_services | selectattr('cert_type', 'equalto', 'keystore') }}"

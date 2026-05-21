@@ -1,0 +1,18 @@
+### Certificate Renewal Summary
+
+**Completed at:** {{ ansible_date_time.iso8601 }}
+
+| Certificate | Risk | Strategy | Status | New Expiry |
+|:------------|:-----|:---------|:-------|:-----------|
+{% for result in validation_summary.results %}
+| {{ result.cert_id }} | {{ result.type }} | {{ result.status | upper }} | {{ result.new_expiry | default('N/A') }} |
+{% endfor %}
+
+**Results:** {{ validation_summary.passed }}/{{ validation_summary.total_validated }} passed
+{% if validation_summary.failed | int > 0 %}
+**Failed renewals require manual investigation.**
+{% else %}
+All certificates successfully renewed and validated.
+{% endif %}
+
+Next scheduled scan: 24 hours

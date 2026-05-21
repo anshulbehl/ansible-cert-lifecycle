@@ -1,0 +1,60 @@
+#!/bin/bash
+# Simple HTTPS server using Java's built-in HttpsServer
+# Serves a health endpoint on port 8443 using the keystore
+
+cat > /tmp/HttpsApp.java << 'JAVAEOF'
+import com.sun.net.httpserver.*;
+import javax.net.ssl.*;
+import java.io.*;
+import java.net.InetSocketAddress;
+import java.security.KeyStore;
+
+public class HttpsApp {
+    public static void main(String[] args) throws Exception {
+        String keystorePath = System.getenv("KEYSTORE_PATH");
+        String keystorePass = System.getenv("KEYSTORE_PASS");
+        String serviceName = System.getenv("SERVICE_NAME");
+
+        KeyStore ks = KeyStore.getInstance("JKS");
+        ks.load(new FileInputStream(keystorePath), keystorePass.toCharArray());
+
+        KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
+        kmf.init(ks, keystorePass.toCharArray());
+
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(kmf.getKeyManagers(), null, null);
+
+        HttpsServer server = HttpsServer.create(new InetSocketAddress(8443), 0);
+        server.setHttpsConfigurator(new HttpsConfigurator(sslContext));
+
+        server.createContext("/", exchange -> {
+            String response = String.format(
+                "{\"service\": \"%s\", \"status\": \"healthy\", \"keystore\": \"%s\"}",
+                serviceName, keystorePath);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length());
+            exchange.getResponseBody().write(response.getBytes());
+            exchange.getResponseBody().close();
+        });
+
+        server.createContext("/health", exchange -> {
+            String response = "{\"status\": \"ok\"}";
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length());
+            exchange.getResponseBody().write(response.getBytes());
+            exchange.getResponseBody().close();
+        });
+
+        server.start();
+        System.out.println(serviceName + " listening on https://0.0.0.0:8443");
+    }
+}
+JAVAEOF
+
+export KEYSTORE_PATH="/app/keystore/keystore.jks"
+export KEYSTORE_PASS="{{ item.keystore_password }}"
+export SERVICE_NAME="{{ item.name }}"
+
+cd /tmp
+javac HttpsApp.java
+java HttpsApp

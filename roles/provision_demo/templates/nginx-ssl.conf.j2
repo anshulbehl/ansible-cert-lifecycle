@@ -1,0 +1,18 @@
+server {
+    listen 443 ssl;
+    server_name {{ item.cert_cn }};
+
+    ssl_certificate /etc/nginx/certs/tls.crt;
+    ssl_certificate_key /etc/nginx/certs/tls.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    location / {
+        return 200 '{"service": "{{ item.name }}", "status": "healthy", "cert_cn": "{{ item.cert_cn }}", "description": "{{ item.description }}"}';
+        add_header Content-Type application/json;
+    }
+
+    location /health {
+        return 200 '{"status": "ok"}';
+        add_header Content-Type application/json;
+    }
+}

@@ -1,0 +1,110 @@
+---
+- name: Back up existing keystore
+  ansible.builtin.copy:
+    src: "{{ keystore_path }}"
+    dest: "{{ keystore_path }}.bak.{{ ansible_date_time.epoch }}"
+    remote_src: true
+    mode: "0644"
+  become: true
+
+- name: Generate new private key
+  ansible.builtin.command:
+    cmd: >
+      openssl genrsa
+      -out /tmp/{{ cert_id }}.key
+      2048
+  become: true
+
+- name: Generate CSR for IPA
+  ansible.builtin.command:
+    cmd: >
+      openssl req -new
+      -key /tmp/{{ cert_id }}.key
+      -out /tmp/{{ cert_id }}.csr
+      -subj "/CN={{ cert_cn }}/O={{ ipa_realm }}"
+  become: true
+
+- name: Submit CSR to FreeIPA
+  ansible.builtin.shell:
+    cmd: |
+      CSR=$(cat /tmp/{{ cert_id }}.csr)
+      podman exec {{ ipa_container_name }} bash -c "
+        echo '{{ ipa_admin_password }}' | kinit admin 2>/dev/null &&
+        ipa cert-request \
+          --principal=HTTP/{{ cert_cn }}@{{ ipa_realm }} \
+          --certificate-out=/tmp/{{ cert_id }}.crt \
+          <(echo '${CSR}')
+      "
+      podman cp {{ ipa_container_name }}:/tmp/{{ cert_id }}.crt /tmp/{{ cert_id }}.crt
+  become: true
+
+- name: Create PKCS12 bundle from new cert and key
+  ansible.builtin.command:
+    cmd: >
+      openssl pkcs12 -export
+      -in /tmp/{{ cert_id }}.crt
+      -inkey /tmp/{{ cert_id }}.key
+      -out /tmp/{{ cert_id }}.p12
+      -name {{ cert_id }}
+      -passout pass:{{ keystore_password }}
+  become: true
+
+- name: Remove old alias from keystore
+  ansible.builtin.command:
+    cmd: >
+      keytool -delete
+      -keystore {{ keystore_path }}
+      -storepass {{ keystore_password }}
+      -alias {{ keystore_alias | default(cert_id) }}
+  become: true
+  ignore_errors: true
+
+- name: Import new PKCS12 into Java keystore
+  ansible.builtin.command:
+    cmd: >
+      keytool -importkeystore
+      -srckeystore /tmp/{{ cert_id }}.p12
+      -srcstoretype PKCS12
+      -srcstorepass {{ keystore_password }}
+      -destkeystore {{ keystore_path }}
+      -deststorepass {{ keystore_password }}
+      -noprompt
+  become: true
+
+- name: Clean up temporary files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  become: true
+  loop:
+    - "/tmp/{{ cert_id }}.key"
+    - "/tmp/{{ cert_id }}.csr"
+    - "/tmp/{{ cert_id }}.crt"
+    - "/tmp/{{ cert_id }}.p12"
+
+- name: Restart application container to pick up new keystore
+  ansible.builtin.command:
+    cmd: "podman restart {{ service_name }}"
+  become: true
+  when: service_name is defined
+
+- name: Wait for application to be ready after restart
+  ansible.builtin.uri:
+    url: "https://localhost:{{ service_port | default('8443') }}/health"
+    validate_certs: false
+    status_code: 200
+  register: health_check
+  until: health_check.status == 200
+  retries: 12
+  delay: 5
+  when: service_port is defined
+
+- name: Record renewal result
+  ansible.builtin.set_fact:
+    renewal_result:
+      cert_id: "{{ cert_id }}"
+      strategy: ipa-issue-keytool-import
+      status: success
+      keystore: "{{ keystore_path }}"
+      service_restarted: "{{ service_name | default('none') }}"
+      timestamp: "{{ ansible_date_time.iso8601 }}"

@@ -1,0 +1,75 @@
+#!/bin/bash
+# Certificate monitoring script - sends cert status to Splunk HEC
+# Runs continuously, checking every {{ splunk_cert_check_interval }} seconds
+
+SPLUNK_HEC="http://localhost:{{ splunk_hec_port }}/services/collector/event"
+HEC_TOKEN="{{ splunk_hec_token }}"
+INTERVAL={{ splunk_cert_check_interval }}
+
+check_cert() {
+    local name="$1"
+    local host="$2"
+    local port="$3"
+
+    local result
+    result=$(echo | timeout 5 openssl s_client -connect "${host}:${port}" -servername "${host}" 2>/dev/null)
+
+    if [ $? -ne 0 ]; then
+        # TLS handshake failed
+        curl -s -k "${SPLUNK_HEC}" \
+            -H "Authorization: Splunk ${HEC_TOKEN}" \
+            -d "{\"event\": {\"source\": \"splunk_itsi\", \"kpi\": \"cert_expiry\", \"host\": \"${host}\", \"port\": \"${port}\", \"service\": \"${name}\", \"status\": \"error\", \"days_remaining\": -1, \"error\": \"TLS handshake failed\", \"severity\": \"critical\"}, \"sourcetype\": \"cert_check\"}"
+        return
+    fi
+
+    local cert_info
+    cert_info=$(echo "$result" | openssl x509 -noout -enddate -subject -issuer 2>/dev/null)
+
+    if [ $? -ne 0 ]; then
+        curl -s -k "${SPLUNK_HEC}" \
+            -H "Authorization: Splunk ${HEC_TOKEN}" \
+            -d "{\"event\": {\"source\": \"splunk_itsi\", \"kpi\": \"cert_expiry\", \"host\": \"${host}\", \"port\": \"${port}\", \"service\": \"${name}\", \"status\": \"error\", \"days_remaining\": -1, \"error\": \"Cannot parse certificate\", \"severity\": \"critical\"}, \"sourcetype\": \"cert_check\"}"
+        return
+    fi
+
+    local expiry_str
+    expiry_str=$(echo "$cert_info" | grep 'notAfter=' | sed 's/notAfter=//')
+    local expiry_epoch
+    expiry_epoch=$(date -d "$expiry_str" +%s 2>/dev/null)
+    local now_epoch
+    now_epoch=$(date +%s)
+    local days_remaining=$(( (expiry_epoch - now_epoch) / 86400 ))
+
+    local subject
+    subject=$(echo "$cert_info" | grep 'subject=' | sed 's/subject=//')
+    local issuer
+    issuer=$(echo "$cert_info" | grep 'issuer=' | sed 's/issuer=//')
+    local cert_cn
+    cert_cn=$(echo "$subject" | grep -oP 'CN\s*=\s*\K[^,/]+')
+
+    local status="valid"
+    local severity="info"
+    if [ "$days_remaining" -le 0 ]; then
+        status="expired"
+        severity="critical"
+    elif [ "$days_remaining" -le {{ cert_expiry_critical_days }} ]; then
+        status="critical"
+        severity="high"
+    elif [ "$days_remaining" -le {{ cert_expiry_warning_days }} ]; then
+        status="warning"
+        severity="medium"
+    fi
+
+    curl -s -k "${SPLUNK_HEC}" \
+        -H "Authorization: Splunk ${HEC_TOKEN}" \
+        -d "{\"event\": {\"source\": \"splunk_itsi\", \"kpi\": \"cert_expiry\", \"host\": \"${host}\", \"port\": \"${port}\", \"service\": \"${name}\", \"cert_cn\": \"${cert_cn}\", \"subject\": \"${subject}\", \"issuer\": \"${issuer}\", \"expiry\": \"${expiry_str}\", \"days_remaining\": ${days_remaining}, \"status\": \"${status}\", \"severity\": \"${severity}\"}, \"sourcetype\": \"cert_check\"}"
+}
+
+echo "Certificate monitor started. Checking every ${INTERVAL}s."
+
+while true; do
+{% for svc in demo_services %}
+    check_cert "{{ svc.name }}" "localhost" "{{ svc.port }}"
+{% endfor %}
+    sleep "$INTERVAL"
+done

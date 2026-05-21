@@ -1,0 +1,66 @@
+---
+- name: Copy dashboard application files
+  ansible.builtin.copy:
+    src: dashboard/
+    dest: "{{ demo_dashboard_dir }}/"
+    mode: "0755"
+  become: true
+
+- name: Install Python dependencies for dashboard
+  ansible.builtin.pip:
+    requirements: "{{ demo_dashboard_dir }}/requirements.txt"
+    executable: pip3
+  become: true
+
+- name: Create dashboard environment file
+  ansible.builtin.copy:
+    content: |
+      DEMO_BASE_DIR={{ demo_base_dir }}
+      DEMO_CERTS_DIR={{ demo_certs_dir }}
+      DEMO_KEYSTORES_DIR={{ demo_keystores_dir }}
+      EDA_WEBHOOK_URL=http://{{ eda_webhook_host }}:{{ eda_webhook_port }}/endpoint
+      SPLUNK_HEC_URL=http://localhost:{{ splunk_hec_port }}/services/collector/event
+      SPLUNK_HEC_TOKEN={{ splunk_hec_token }}
+      DEMO_SERVICES={{ demo_services | to_json }}
+    dest: "{{ demo_dashboard_dir }}/.env"
+    mode: "0600"
+  become: true
+
+- name: Create dashboard systemd service
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=AIOps Cert Lifecycle Dashboard
+      After=network.target
+
+      [Service]
+      Type=simple
+      WorkingDirectory={{ demo_dashboard_dir }}
+      EnvironmentFile={{ demo_dashboard_dir }}/.env
+      ExecStart=/usr/bin/python3 -m uvicorn app:app --host 0.0.0.0 --port {{ dashboard_port }}
+      Restart=always
+      RestartSec=3
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/cert-dashboard.service
+    mode: "0644"
+  become: true
+
+- name: Start dashboard service
+  ansible.builtin.systemd:
+    name: cert-dashboard
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+
+- name: Wait for dashboard to be ready
+  ansible.builtin.uri:
+    url: "http://localhost:{{ dashboard_port }}/api/services"
+    status_code: 200
+    timeout: 5
+  register: dashboard_ready
+  until: dashboard_ready.status == 200
+  retries: 12
+  delay: 5

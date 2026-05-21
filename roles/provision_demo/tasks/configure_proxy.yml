@@ -1,0 +1,51 @@
+---
+- name: Install nginx on the host as reverse proxy
+  ansible.builtin.dnf:
+    name: nginx
+    state: present
+  become: true
+
+- name: Generate host-level self-signed cert for the reverse proxy
+  ansible.builtin.command:
+    cmd: >
+      openssl req -new -x509 -nodes
+      -keyout /etc/pki/tls/private/proxy.key
+      -out /etc/pki/tls/certs/proxy.crt
+      -days 365
+      -subj "/CN={{ ansible_host }}/O=CertDemo/OU=Proxy"
+    creates: /etc/pki/tls/certs/proxy.crt
+  become: true
+
+- name: Configure nginx reverse proxy
+  ansible.builtin.template:
+    src: proxy.conf.j2
+    dest: /etc/nginx/conf.d/cert-demo-proxy.conf
+    mode: "0644"
+  become: true
+  notify: Restart nginx proxy
+
+- name: Open firewall ports
+  ansible.posix.firewalld:
+    port: "{{ item }}/tcp"
+    permanent: true
+    state: enabled
+    immediate: true
+  become: true
+  loop:
+    - "80"
+    - "443"
+    - "8443"
+    - "8444"
+    - "8445"
+    - "8446"
+    - "{{ splunk_web_port }}"
+    - "{{ splunk_hec_port }}"
+    - "{{ dashboard_port }}"
+  ignore_errors: true
+
+- name: Start and enable nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: started
+    enabled: true
+  become: true

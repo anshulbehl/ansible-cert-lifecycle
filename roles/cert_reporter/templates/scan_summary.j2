@@ -1,0 +1,19 @@
+### Certificate Scan Complete
+
+**Host:** {{ cert_scan_report.hostname }}
+**Scanned at:** {{ cert_scan_report.scan_timestamp }}
+
+| Metric | Count |
+|:-------|------:|
+| Total certificates | {{ cert_scan_report.total_certs }} |
+| Expiring within {{ cert_expiry_warning_days }} days | {{ cert_scan_report.expiring_soon }} |
+| Already expired | {{ cert_scan_report.expired }} |
+
+{% if cert_scan_report.expiring_soon | int > 0 %}
+**Certificates requiring attention:**
+{% for cert in cert_scan_report.certs_found %}
+{% if cert.days_remaining < cert_expiry_warning_days %}
+- **{{ cert.service }}** ({{ cert.store }}): {{ cert.days_remaining }} days remaining, issuer: {{ cert.issuer | truncate(40) }}
+{% endif %}
+{% endfor %}
+{% endif %}

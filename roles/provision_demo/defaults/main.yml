@@ -1,0 +1,10 @@
+---
+provision_packages:
+  - podman
+  - openssl
+  - java-21-openjdk-headless
+  - nginx
+  - python3-pip
+  - python3-devel
+  - jq
+  - curl

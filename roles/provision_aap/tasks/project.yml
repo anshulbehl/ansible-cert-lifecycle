@@ -1,0 +1,24 @@
+---
+- name: Create project from Git
+  ansible.controller.project:
+    name: "{{ aap_project_name }}"
+    description: "AIOps certificate lifecycle management with AI classification"
+    organization: "{{ aap_organization }}"
+    scm_type: git
+    scm_url: "{{ aap_project_scm_url }}"
+    default_environment: "{{ aap_ee_name }}"
+    state: present
+    controller_host: "{{ aap_host }}"
+    controller_username: "{{ aap_username }}"
+    controller_password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+
+- name: Wait for project sync to complete
+  ansible.controller.project:
+    name: "{{ aap_project_name }}"
+    organization: "{{ aap_organization }}"
+    wait: true
+    controller_host: "{{ aap_host }}"
+    controller_username: "{{ aap_username }}"
+    controller_password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"

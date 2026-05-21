@@ -1,0 +1,75 @@
+---
+- name: Build classification prompt from template
+  ansible.builtin.set_fact:
+    classification_prompt: "{{ lookup('template', 'classify_prompt.j2') }}"
+  vars:
+    cert_report: "{{ cert_scan_report.certs_found }}"
+
+- name: Set LLM endpoint based on provider
+  ansible.builtin.set_fact:
+    llm_endpoint: >-
+      {{ (llm_provider == 'granite') | ternary(granite_endpoint,
+         (llm_provider == 'claude') | ternary(claude_endpoint,
+         gemini_endpoint)) }}
+    llm_model: >-
+      {{ (llm_provider == 'granite') | ternary(granite_model,
+         (llm_provider == 'claude') | ternary(claude_model,
+         'gemini-2.0-flash')) }}
+    llm_api_key: >-
+      {{ (llm_provider == 'granite') | ternary('',
+         (llm_provider == 'claude') | ternary(claude_api_key,
+         gemini_api_key)) }}
+
+- name: Call LLM for classification (OpenAI-compatible API)
+  ansible.builtin.uri:
+    url: "{{ llm_endpoint }}"
+    method: POST
+    body_format: json
+    body:
+      model: "{{ llm_model }}"
+      messages:
+        - role: system
+          content: "You are a certificate lifecycle analyst. Always respond with valid JSON only, no markdown fencing or extra text."
+        - role: user
+          content: "{{ classification_prompt }}"
+      max_tokens: "{{ cert_classifier_max_tokens }}"
+      temperature: "{{ cert_classifier_temperature }}"
+    headers:
+      Content-Type: application/json
+      Authorization: "{{ ('Bearer ' + llm_api_key) if llm_api_key | length > 0 else omit }}"
+    timeout: "{{ cert_classifier_request_timeout }}"
+    validate_certs: false
+  register: llm_response
+
+- name: Extract response text
+  ansible.builtin.set_fact:
+    llm_response_text: "{{ llm_response.json.choices[0].message.content | regex_replace('```json\\s*', '') | regex_replace('```\\s*$', '') | trim }}"
+
+- name: Parse LLM response into classification results
+  ansible.builtin.set_fact:
+    cert_classifications: "{{ llm_response_text | from_json }}"
+
+- name: Validate classification results
+  ansible.builtin.assert:
+    that:
+      - cert_classifications is iterable
+      - cert_classifications | length > 0
+      - cert_classifications[0].risk_level is defined
+      - cert_classifications[0].renewal_strategy is defined
+    fail_msg: "LLM returned invalid classification format. Raw response: {{ llm_response_text }}"
+
+- name: Sort classifications by recommended order
+  ansible.builtin.set_fact:
+    cert_classifications: "{{ cert_classifications | sort(attribute='recommended_order') }}"
+
+- name: Display classification summary
+  ansible.builtin.debug:
+    msg: |
+      Certificate Classification Results (via {{ llm_provider }}):
+      {% for cert in cert_classifications %}
+        {{ cert.cert_id }}: {{ cert.risk_level | upper }}
+          Reason: {{ cert.reason }}
+          Strategy: {{ cert.renewal_strategy }}
+          Approval: {{ cert.approval_type }}
+          Blast radius: {{ cert.blast_radius | join(', ') }}
+      {% endfor %}

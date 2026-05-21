@@ -1,0 +1,61 @@
+---
+- name: Create FreeIPA data directory
+  ansible.builtin.file:
+    path: "{{ demo_base_dir }}/ipa-data"
+    state: directory
+    mode: "0755"
+    setype: svirt_sandbox_file_t
+  become: true
+
+- name: Check if FreeIPA container is running
+  ansible.builtin.command:
+    cmd: podman ps --filter name={{ ipa_container_name }} --format '{{ '{{' }}.Names{{ '}}' }}'
+  register: ipa_running
+  changed_when: false
+  become: true
+
+- name: Start FreeIPA container
+  ansible.builtin.command:
+    cmd: >
+      podman run -d
+      --name {{ ipa_container_name }}
+      --hostname ipa.{{ ipa_domain }}
+      --sysctl net.ipv6.conf.all.disable_ipv6=0
+      -p 636:636 -p 389:389 -p 88:88 -p 464:464
+      -v {{ demo_base_dir }}/ipa-data:/data:Z
+      -e IPA_SERVER_INSTALL_OPTS="
+        --realm={{ ipa_realm }}
+        --domain={{ ipa_domain }}
+        --ds-password={{ ipa_ds_password }}
+        --admin-password={{ ipa_admin_password }}
+        --no-ntp
+        --unattended"
+      {{ ipa_container_image }}
+  become: true
+  when: ipa_container_name not in (ipa_running.stdout | default(''))
+
+- name: Wait for FreeIPA to be ready
+  ansible.builtin.shell:
+    cmd: >
+      podman exec {{ ipa_container_name }} bash -c
+      "echo '{{ ipa_admin_password }}' | kinit admin 2>/dev/null && ipa ping"
+  register: ipa_ping
+  until: ipa_ping.rc == 0
+  retries: 60
+  delay: 30
+  changed_when: false
+  become: true
+
+- name: Extract IPA CA certificate
+  ansible.builtin.command:
+    cmd: podman exec {{ ipa_container_name }} cat /etc/ipa/ca.crt
+  register: ipa_ca_cert
+  changed_when: false
+  become: true
+
+- name: Save IPA CA certificate to demo host
+  ansible.builtin.copy:
+    content: "{{ ipa_ca_cert.stdout }}"
+    dest: "{{ demo_certs_dir }}/ipa-ca.crt"
+    mode: "0644"
+  become: true

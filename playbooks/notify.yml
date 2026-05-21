@@ -1,0 +1,12 @@
+---
+- name: Send notification to Mattermost
+  hosts: demo_host
+  gather_facts: true
+
+  tasks:
+    - name: Post message to Mattermost
+      ansible.builtin.include_role:
+        name: cert_reporter
+      vars:
+        report_message: "{{ report_message | default('Certificate lifecycle event notification') }}"
+        report_channel: "{{ report_channel | default(mattermost_channel) }}"

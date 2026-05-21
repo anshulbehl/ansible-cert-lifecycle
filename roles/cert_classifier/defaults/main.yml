@@ -1,0 +1,4 @@
+---
+cert_classifier_request_timeout: 60
+cert_classifier_max_tokens: 2048
+cert_classifier_temperature: 0.1

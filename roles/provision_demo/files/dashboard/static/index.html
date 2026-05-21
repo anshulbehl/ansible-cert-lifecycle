@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIOps Certificate Lifecycle Dashboard</title>
+<style>
+:root {
+  --rh-red: #ee0000;
+  --rh-red-dark: #a30000;
+  --rh-dark-1: #151515;
+  --rh-dark-2: #1a1a1a;
+  --rh-dark-3: #212427;
+  --rh-dark-4: #2a2a2a;
+  --rh-gray: #6a6e73;
+  --rh-light: #d2d2d2;
+  --rh-white: #f0f0f0;
+  --status-valid: #3e8635;
+  --status-warning: #f0ab00;
+  --status-critical: #c9190b;
+  --status-expired: #7d1007;
+  --status-error: #6a6e73;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'RedHatText', 'Segoe UI', system-ui, sans-serif;
+  background: var(--rh-dark-1);
+  color: var(--rh-light);
+  min-height: 100vh;
+}
+
+header {
+  background: var(--rh-dark-3);
+  border-bottom: 3px solid var(--rh-red);
+  padding: 16px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+header h1 {
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--rh-white);
+}
+
+header h1 span { color: var(--rh-red); }
+
+.header-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.header-actions button {
+  padding: 8px 16px;
+  border: 1px solid var(--rh-red);
+  background: transparent;
+  color: var(--rh-red);
+  cursor: pointer;
+  font-size: 13px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.header-actions button:hover {
+  background: var(--rh-red);
+  color: white;
+}
+
+.header-actions .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-valid);
+  display: inline-block;
+}
+
+.header-actions .status-dot.polling { animation: pulse 1.5s infinite; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+main { padding: 24px 32px; }
+
+.metrics-bar {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.metric-card {
+  background: var(--rh-dark-3);
+  border: 1px solid var(--rh-dark-4);
+  border-radius: 8px;
+  padding: 16px 24px;
+  flex: 1;
+  text-align: center;
+}
+
+.metric-card .value {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--rh-white);
+}
+
+.metric-card .label {
+  font-size: 12px;
+  color: var(--rh-gray);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 4px;
+}
+
+.metric-card.expired .value { color: var(--status-expired); }
+.metric-card.critical .value { color: var(--status-critical); }
+.metric-card.warning .value { color: var(--status-warning); }
+.metric-card.valid .value { color: var(--status-valid); }
+
+.content-grid {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  gap: 24px;
+}
+
+.services-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.service-card {
+  background: var(--rh-dark-3);
+  border: 1px solid var(--rh-dark-4);
+  border-radius: 8px;
+  padding: 20px;
+  position: relative;
+  transition: border-color 0.3s;
+}
+
+.service-card.status-valid { border-left: 4px solid var(--status-valid); }
+.service-card.status-warning { border-left: 4px solid var(--status-warning); }
+.service-card.status-critical { border-left: 4px solid var(--status-critical); }
+.service-card.status-expired { border-left: 4px solid var(--status-expired); }
+.service-card.status-error { border-left: 4px solid var(--status-error); }
+
+.service-card .name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--rh-white);
+  margin-bottom: 4px;
+}
+
+.service-card .description {
+  font-size: 12px;
+  color: var(--rh-gray);
+  margin-bottom: 12px;
+}
+
+.service-card .cert-details {
+  font-size: 13px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+}
+
+.service-card .cert-details dt {
+  color: var(--rh-gray);
+}
+
+.service-card .cert-details dd {
+  color: var(--rh-light);
+}
+
+.service-card .status-badge {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.status-badge.valid { background: var(--status-valid); color: white; }
+.status-badge.warning { background: var(--status-warning); color: #1a1a1a; }
+.status-badge.critical { background: var(--status-critical); color: white; }
+.status-badge.expired { background: var(--status-expired); color: white; }
+.status-badge.error { background: var(--status-error); color: white; }
+
+.service-card .days-remaining {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 12px 0 4px;
+}
+
+.service-card .days-label {
+  font-size: 11px;
+  color: var(--rh-gray);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.service-card .actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+}
+
+.service-card .actions button {
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid;
+  transition: all 0.2s;
+}
+
+.btn-invalidate {
+  background: transparent;
+  border-color: var(--status-critical) !important;
+  color: var(--status-critical);
+}
+.btn-invalidate:hover { background: var(--status-critical); color: white; }
+
+.btn-renew {
+  background: transparent;
+  border-color: var(--status-valid) !important;
+  color: var(--status-valid);
+}
+.btn-renew:hover { background: var(--status-valid); color: white; }
+
+.btn-renew:disabled, .btn-invalidate:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.events-panel {
+  background: var(--rh-dark-3);
+  border: 1px solid var(--rh-dark-4);
+  border-radius: 8px;
+  padding: 16px;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.events-panel h3 {
+  font-size: 14px;
+  color: var(--rh-white);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.event-item {
+  padding: 8px 12px;
+  border-left: 3px solid var(--rh-dark-4);
+  margin-bottom: 8px;
+  font-size: 12px;
+  background: var(--rh-dark-2);
+  border-radius: 0 4px 4px 0;
+}
+
+.event-item.type-invalidate { border-left-color: var(--status-critical); }
+.event-item.type-trigger { border-left-color: var(--rh-red); }
+.event-item.type-scan { border-left-color: #06c; }
+.event-item.type-classify { border-left-color: #7b2cf5; }
+.event-item.type-renewal { border-left-color: var(--status-valid); }
+.event-item.type-validate { border-left-color: var(--status-warning); }
+
+.event-item .time {
+  color: var(--rh-gray);
+  font-size: 11px;
+}
+
+.event-item .msg {
+  color: var(--rh-light);
+  margin-top: 2px;
+}
+
+.event-item .svc {
+  color: var(--rh-red);
+  font-weight: 600;
+}
+
+.ai-classification {
+  background: var(--rh-dark-3);
+  border: 1px solid var(--rh-dark-4);
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 24px;
+  grid-column: 1 / -1;
+  display: none;
+}
+
+.ai-classification.visible { display: block; }
+
+.ai-classification h3 {
+  font-size: 14px;
+  color: var(--rh-white);
+  margin-bottom: 12px;
+}
+
+.ai-classification .reasoning {
+  font-family: 'RedHatMono', monospace;
+  font-size: 12px;
+  color: var(--rh-light);
+  background: var(--rh-dark-1);
+  padding: 12px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+footer {
+  text-align: center;
+  padding: 16px;
+  color: var(--rh-gray);
+  font-size: 11px;
+  border-top: 1px solid var(--rh-dark-4);
+  margin-top: 24px;
+}
+
+.loading {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--rh-gray);
+  border-top-color: var(--rh-red);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 1200px) {
+  .content-grid { grid-template-columns: 1fr; }
+  .services-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span>AIOps</span> Certificate Lifecycle Dashboard</h1>
+  <div class="header-actions">
+    <span class="status-dot polling" id="polling-dot"></span>
+    <span style="font-size:12px;color:var(--rh-gray)" id="last-update">Connecting...</span>
+    <button onclick="triggerScan()">Trigger Full Pipeline</button>
+  </div>
+</header>
+
+<main>
+  <div class="metrics-bar" id="metrics-bar">
+    <div class="metric-card"><div class="value" id="m-total">-</div><div class="label">Total Certs</div></div>
+    <div class="metric-card valid"><div class="value" id="m-valid">-</div><div class="label">Valid</div></div>
+    <div class="metric-card warning"><div class="value" id="m-warning">-</div><div class="label">Warning</div></div>
+    <div class="metric-card critical"><div class="value" id="m-critical">-</div><div class="label">Critical</div></div>
+    <div class="metric-card expired"><div class="value" id="m-expired">-</div><div class="label">Expired</div></div>
+  </div>
+
+  <div class="content-grid">
+    <div class="services-grid" id="services-grid">
+      <div class="service-card"><div class="name">Loading services...</div></div>
+    </div>
+
+    <div class="events-panel">
+      <h3>Event Timeline</h3>
+      <div id="events-list">
+        <div class="event-item">
+          <div class="msg">Waiting for events...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ai-classification" id="ai-panel">
+    <h3>AI Classification (last run)</h3>
+    <div class="reasoning" id="ai-reasoning">No classification data yet. Trigger a scan to see AI analysis.</div>
+  </div>
+</main>
+
+<footer>
+  Red Hat Ansible Automation Platform &middot; AIOps Certificate Lifecycle Demo
+  &middot; Splunk ITSI + Event-Driven Ansible + AI Classification
+</footer>
+
+<script>
+const POLL_INTERVAL = 3000;
+let actionInProgress = {};
+
+async function fetchServices() {
+  try {
+    const resp = await fetch('/api/services');
+    const data = await resp.json();
+    renderServices(data.services);
+    updateMetrics(data.services);
+    document.getElementById('last-update').textContent =
+      'Updated ' + new Date(data.timestamp).toLocaleTimeString();
+  } catch (e) {
+    document.getElementById('last-update').textContent = 'Connection error';
+  }
+}
+
+async function fetchEvents() {
+  try {
+    const resp = await fetch('/api/events?limit=30');
+    const data = await resp.json();
+    renderEvents(data.events);
+  } catch (e) {}
+}
+
+function updateMetrics(services) {
+  let total = services.length, valid = 0, warning = 0, critical = 0, expired = 0;
+  services.forEach(s => {
+    const st = s.cert_status.status;
+    if (st === 'valid') valid++;
+    else if (st === 'warning') warning++;
+    else if (st === 'critical') critical++;
+    else if (st === 'expired' || st === 'error') expired++;
+  });
+  document.getElementById('m-total').textContent = total;
+  document.getElementById('m-valid').textContent = valid;
+  document.getElementById('m-warning').textContent = warning;
+  document.getElementById('m-critical').textContent = critical;
+  document.getElementById('m-expired').textContent = expired;
+}
+
+function renderServices(services) {
+  const grid = document.getElementById('services-grid');
+  grid.innerHTML = services.map(svc => {
+    const st = svc.cert_status;
+    const status = st.status || 'error';
+    const days = st.days_remaining != null ? st.days_remaining : '?';
+    const busy = actionInProgress[svc.name];
+
+    return `
+    <div class="service-card status-${status}">
+      <span class="status-badge ${status}">${status}</span>
+      <div class="name">${svc.name}</div>
+      <div class="description">${svc.description}</div>
+      <div class="days-remaining" style="color:var(--status-${status})">${days < 0 ? 'EXPIRED' : days}</div>
+      <div class="days-label">${days < 0 ? '' : 'days remaining'}</div>
+      <dl class="cert-details">
+        <dt>Type</dt><dd>${svc.cert_type}</dd>
+        <dt>CN</dt><dd>${svc.cert_cn || st.subject || '-'}</dd>
+        <dt>Issuer</dt><dd>${(st.issuer || '-').substring(0, 40)}</dd>
+        <dt>Expiry</dt><dd>${st.expiry || '-'}</dd>
+        <dt>Port</dt><dd>${svc.port}</dd>
+      </dl>
+      <div class="actions">
+        <button class="btn-invalidate" onclick="invalidateCert('${svc.name}')"
+          ${busy ? 'disabled' : ''}>
+          ${busy === 'invalidate' ? '<span class="loading"></span>' : 'Invalidate Cert'}
+        </button>
+        <button class="btn-renew" onclick="triggerRenewal('${svc.name}')"
+          ${busy ? 'disabled' : ''}>
+          ${busy === 'renew' ? '<span class="loading"></span>' : 'Trigger Renewal'}
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderEvents(events) {
+  const list = document.getElementById('events-list');
+  if (!events.length) {
+    list.innerHTML = '<div class="event-item"><div class="msg">No events yet.</div></div>';
+    return;
+  }
+  list.innerHTML = events.reverse().map(ev => `
+    <div class="event-item type-${ev.type}">
+      <div class="time">${new Date(ev.timestamp).toLocaleTimeString()}</div>
+      <div class="msg"><span class="svc">${ev.service}</span> ${ev.message}</div>
+    </div>
+  `).join('');
+}
+
+async function invalidateCert(name) {
+  if (!confirm(`Invalidate certificate for ${name}? This will replace the cert with an expired one. Splunk will detect the failure and trigger the AIOps pipeline.`)) return;
+  actionInProgress[name] = 'invalidate';
+  fetchServices();
+  try {
+    await fetch(`/api/invalidate/${name}`, { method: 'POST' });
+  } catch (e) {}
+  delete actionInProgress[name];
+  fetchServices();
+  fetchEvents();
+}
+
+async function triggerRenewal(name) {
+  actionInProgress[name] = 'renew';
+  fetchServices();
+  try {
+    await fetch(`/api/trigger-renewal/${name}`, { method: 'POST' });
+  } catch (e) {}
+  delete actionInProgress[name];
+  fetchServices();
+  fetchEvents();
+}
+
+async function triggerScan() {
+  try {
+    await fetch('/api/trigger-scan', { method: 'POST' });
+    fetchEvents();
+  } catch (e) {}
+}
+
+// Poll
+setInterval(() => { fetchServices(); fetchEvents(); }, POLL_INTERVAL);
+fetchServices();
+fetchEvents();
+</script>
+</body>
+</html>

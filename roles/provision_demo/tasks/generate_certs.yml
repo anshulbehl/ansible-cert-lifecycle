@@ -1,0 +1,175 @@
+---
+- name: "{{ service.name }} - Generate self-signed certificate"
+  when: service.cert_type == 'self-signed'
+  block:
+    - name: "{{ service.name }} - Create cert directory"
+      ansible.builtin.file:
+        path: "{{ demo_certs_dir }}/{{ service.name }}"
+        state: directory
+        mode: "0755"
+      become: true
+
+    - name: "{{ service.name }} - Generate private key"
+      ansible.builtin.command:
+        cmd: >
+          openssl genrsa
+          -out {{ demo_certs_dir }}/{{ service.name }}/tls.key
+          2048
+        creates: "{{ demo_certs_dir }}/{{ service.name }}/tls.key"
+      become: true
+
+    - name: "{{ service.name }} - Generate self-signed cert (expires in {{ service.cert_days_valid }} days)"
+      ansible.builtin.command:
+        cmd: >
+          openssl req -new -x509
+          -key {{ demo_certs_dir }}/{{ service.name }}/tls.key
+          -out {{ demo_certs_dir }}/{{ service.name }}/tls.crt
+          -days {{ service.cert_days_valid }}
+          -subj "/CN={{ service.cert_cn }}/O=CertDemo/OU=Development"
+          -addext "subjectAltName=DNS:{{ service.cert_cn }},DNS:localhost"
+        creates: "{{ demo_certs_dir }}/{{ service.name }}/tls.crt"
+      become: true
+
+- name: "{{ service.name }} - Generate IPA-issued certificate"
+  when: service.cert_type == 'ipa'
+  block:
+    - name: "{{ service.name }} - Create cert directory"
+      ansible.builtin.file:
+        path: "{{ demo_certs_dir }}/{{ service.name }}"
+        state: directory
+        mode: "0755"
+      become: true
+
+    - name: "{{ service.name }} - Generate private key"
+      ansible.builtin.command:
+        cmd: >
+          openssl genrsa
+          -out {{ demo_certs_dir }}/{{ service.name }}/tls.key
+          2048
+        creates: "{{ demo_certs_dir }}/{{ service.name }}/tls.key"
+      become: true
+
+    - name: "{{ service.name }} - Generate CSR"
+      ansible.builtin.command:
+        cmd: >
+          openssl req -new
+          -key {{ demo_certs_dir }}/{{ service.name }}/tls.key
+          -out {{ demo_certs_dir }}/{{ service.name }}/tls.csr
+          -subj "/CN={{ service.cert_cn }}/O={{ ipa_realm }}"
+        creates: "{{ demo_certs_dir }}/{{ service.name }}/tls.csr"
+      become: true
+
+    - name: "{{ service.name }} - Copy CSR into IPA container"
+      ansible.builtin.command:
+        cmd: podman cp {{ demo_certs_dir }}/{{ service.name }}/tls.csr {{ ipa_container_name }}:/tmp/{{ service.name }}.csr
+      become: true
+
+    - name: "{{ service.name }} - Submit CSR to FreeIPA and get cert"
+      ansible.builtin.shell:
+        cmd: |
+          podman exec {{ ipa_container_name }} bash -c "
+            echo '{{ ipa_admin_password }}' | kinit admin &&
+            ipa host-add {{ service.cert_cn }} --force 2>/dev/null || true &&
+            ipa cert-request /tmp/{{ service.name }}.csr \
+              --principal=host/{{ service.cert_cn }}@{{ ipa_realm }} \
+              --add \
+              --certificate-out=/tmp/{{ service.name }}.crt
+          "
+          podman cp {{ ipa_container_name }}:/tmp/{{ service.name }}.crt \
+            {{ demo_certs_dir }}/{{ service.name }}/tls.crt
+        creates: "{{ demo_certs_dir }}/{{ service.name }}/tls.crt"
+      become: true
+
+- name: "{{ service.name }} - Generate IPA-issued cert for Java keystore"
+  when: service.cert_type == 'keystore'
+  block:
+    - name: "{{ service.name }} - Create directories"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      become: true
+      loop:
+        - "{{ demo_certs_dir }}/{{ service.name }}"
+        - "{{ demo_keystores_dir }}/{{ service.name }}"
+
+    - name: "{{ service.name }} - Generate private key"
+      ansible.builtin.command:
+        cmd: >
+          openssl genrsa
+          -out {{ demo_certs_dir }}/{{ service.name }}/tls.key
+          2048
+        creates: "{{ demo_certs_dir }}/{{ service.name }}/tls.key"
+      become: true
+
+    - name: "{{ service.name }} - Generate CSR"
+      ansible.builtin.command:
+        cmd: >
+          openssl req -new
+          -key {{ demo_certs_dir }}/{{ service.name }}/tls.key
+          -out {{ demo_certs_dir }}/{{ service.name }}/tls.csr
+          -subj "/CN={{ service.cert_cn }}/O={{ ipa_realm }}"
+        creates: "{{ demo_certs_dir }}/{{ service.name }}/tls.csr"
+      become: true
+
+    - name: "{{ service.name }} - Copy CSR into IPA container"
+      ansible.builtin.command:
+        cmd: podman cp {{ demo_certs_dir }}/{{ service.name }}/tls.csr {{ ipa_container_name }}:/tmp/{{ service.name }}.csr
+      become: true
+
+    - name: "{{ service.name }} - Submit CSR to FreeIPA"
+      ansible.builtin.shell:
+        cmd: |
+          podman exec {{ ipa_container_name }} bash -c "
+            echo '{{ ipa_admin_password }}' | kinit admin &&
+            ipa host-add {{ service.cert_cn }} --force 2>/dev/null || true &&
+            ipa cert-request /tmp/{{ service.name }}.csr \
+              --principal=host/{{ service.cert_cn }}@{{ ipa_realm }} \
+              --add \
+              --certificate-out=/tmp/{{ service.name }}.crt
+          "
+          podman cp {{ ipa_container_name }}:/tmp/{{ service.name }}.crt \
+            {{ demo_certs_dir }}/{{ service.name }}/tls.crt
+        creates: "{{ demo_certs_dir }}/{{ service.name }}/tls.crt"
+      become: true
+
+    - name: "{{ service.name }} - Create PKCS12 bundle"
+      ansible.builtin.command:
+        cmd: >
+          openssl pkcs12 -export
+          -in {{ demo_certs_dir }}/{{ service.name }}/tls.crt
+          -inkey {{ demo_certs_dir }}/{{ service.name }}/tls.key
+          -out {{ demo_certs_dir }}/{{ service.name }}/keystore.p12
+          -name {{ service.name }}
+          -passout pass:{{ service.keystore_password }}
+        creates: "{{ demo_certs_dir }}/{{ service.name }}/keystore.p12"
+      become: true
+
+    - name: "{{ service.name }} - Import PKCS12 into Java keystore"
+      ansible.builtin.command:
+        cmd: >
+          keytool -importkeystore
+          -srckeystore {{ demo_certs_dir }}/{{ service.name }}/keystore.p12
+          -srcstoretype PKCS12
+          -srcstorepass {{ service.keystore_password }}
+          -destkeystore {{ demo_keystores_dir }}/{{ service.name }}/keystore.jks
+          -deststorepass {{ service.keystore_password }}
+          -noprompt
+        creates: "{{ demo_keystores_dir }}/{{ service.name }}/keystore.jks"
+      become: true
+
+    - name: "{{ service.name }} - Import IPA CA into keystore truststore"
+      ansible.builtin.command:
+        cmd: >
+          keytool -importcert
+          -keystore {{ demo_keystores_dir }}/{{ service.name }}/keystore.jks
+          -storepass {{ service.keystore_password }}
+          -alias ipa-ca
+          -file {{ demo_certs_dir }}/ipa-ca.crt
+          -noprompt
+      become: true
+      register: truststore_import
+      changed_when: "'already exists' not in (truststore_import.stdout + truststore_import.stderr)"
+      failed_when:
+        - truststore_import.rc != 0
+        - "'already exists' not in (truststore_import.stdout + truststore_import.stderr)"

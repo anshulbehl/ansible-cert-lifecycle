@@ -1,0 +1,244 @@
+---
+# Workflow templates require REST API for node creation and linking
+# (ansible.controller doesn't support workflow_job_template_node well)
+
+- name: Get organization ID
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/controller/v2/organizations/?name={{ aap_organization | urlencode }}"
+    method: GET
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    status_code: 200
+  register: org_result
+
+- name: Set organization ID
+  ansible.builtin.set_fact:
+    aap_org_id: "{{ org_result.json.results[0].id }}"
+
+- name: Create workflow job template
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/controller/v2/workflow_job_templates/"
+    method: POST
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    body_format: json
+    body:
+      name: "{{ aap_workflow_name }}"
+      description: "Scan > AI Classify > Route by Risk > Renew > Validate > Report"
+      organization: "{{ aap_org_id }}"
+      ask_variables_on_launch: true
+      extra_vars: "{{ {'demo_services': demo_services, 'llm_provider': llm_provider} | to_json }}"
+    status_code: [200, 201]
+  register: wfjt_result
+  changed_when: wfjt_result.status == 201
+  failed_when:
+    - wfjt_result.status not in [200, 201]
+    - "'already exists' not in (wfjt_result.json | default({}) | string)"
+
+- name: Get workflow ID (if already existed)
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/controller/v2/workflow_job_templates/?name={{ aap_workflow_name | urlencode }}"
+    method: GET
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    status_code: 200
+  register: wfjt_lookup
+  when: wfjt_result.status != 201
+
+- name: Set workflow ID
+  ansible.builtin.set_fact:
+    wfjt_id: "{{ (wfjt_result.json.id | default(wfjt_lookup.json.results[0].id)) }}"
+
+- name: Look up job template IDs
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/controller/v2/job_templates/?name={{ item | urlencode }}"
+    method: GET
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    status_code: 200
+  register: jt_lookups
+  loop:
+    - Cert Discovery Scanner
+    - Cert AI Classifier
+    - Renew Self-Signed Certificate
+    - Renew IPA Certificate
+    - Renew Java Keystore Certificate
+    - Validate Cert Renewal
+    - Certificate Lifecycle Full Pipeline
+
+- name: Build job template ID map
+  ansible.builtin.set_fact:
+    jt_ids: "{{ jt_ids | default({}) | combine({item.item: item.json.results[0].id}) }}"
+  loop: "{{ jt_lookups.results }}"
+
+- name: Delete existing workflow nodes (for idempotency)
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/controller/v2/workflow_job_templates/{{ wfjt_id }}/workflow_nodes/"
+    method: GET
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    status_code: 200
+  register: existing_nodes
+
+- name: Remove existing nodes
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/controller/v2/workflow_job_template_nodes/{{ item.id }}/"
+    method: DELETE
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    status_code: [200, 204]
+  loop: "{{ existing_nodes.json.results | default([]) }}"
+  when: existing_nodes.json.count | default(0) > 0
+
+# Build the workflow: Scan -> Classify -> Full Pipeline (handles routing internally)
+# Keeping it simple: the full_pipeline playbook handles all routing logic
+# The workflow adds the approval gate and visibility in AAP UI
+
+- name: "Create node: Cert Discovery Scanner"
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/controller/v2/workflow_job_template_nodes/"
+    method: POST
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    body_format: json
+    body:
+      workflow_job_template: "{{ wfjt_id }}"
+      unified_job_template: "{{ jt_ids['Cert Discovery Scanner'] }}"
+    status_code: [200, 201]
+  register: node_scan
+
+- name: "Create node: Cert AI Classifier"
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/controller/v2/workflow_job_template_nodes/"
+    method: POST
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    body_format: json
+    body:
+      workflow_job_template: "{{ wfjt_id }}"
+      unified_job_template: "{{ jt_ids['Cert AI Classifier'] }}"
+    status_code: [200, 201]
+  register: node_classify
+
+- name: "Create node: Approval Gate"
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/controller/v2/workflow_job_template_nodes/"
+    method: POST
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    body_format: json
+    body:
+      workflow_job_template: "{{ wfjt_id }}"
+      all_parents_must_converge: false
+    status_code: [200, 201]
+  register: node_approval
+
+- name: "Set approval node type"
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/controller/v2/workflow_job_template_nodes/{{ node_approval.json.id }}/"
+    method: PATCH
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    body_format: json
+    body:
+      identifier: "Approve Certificate Renewals"
+    status_code: [200]
+
+- name: "Create node: Full Pipeline Execution"
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/controller/v2/workflow_job_template_nodes/"
+    method: POST
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    body_format: json
+    body:
+      workflow_job_template: "{{ wfjt_id }}"
+      unified_job_template: "{{ jt_ids['Certificate Lifecycle Full Pipeline'] }}"
+    status_code: [200, 201]
+  register: node_pipeline
+
+- name: "Create node: Validate"
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/controller/v2/workflow_job_template_nodes/"
+    method: POST
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    body_format: json
+    body:
+      workflow_job_template: "{{ wfjt_id }}"
+      unified_job_template: "{{ jt_ids['Validate Cert Renewal'] }}"
+    status_code: [200, 201]
+  register: node_validate
+
+# Link nodes: Scan -> Classify -> Approval -> Pipeline -> Validate
+- name: "Link: Scan -> Classify"
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/controller/v2/workflow_job_template_nodes/{{ node_scan.json.id }}/success_nodes/"
+    method: POST
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    body_format: raw
+    body: '{"id": {{ node_classify.json.id }}}'
+    status_code: [200, 201, 204]
+
+- name: "Link: Classify -> Approval"
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/controller/v2/workflow_job_template_nodes/{{ node_classify.json.id }}/success_nodes/"
+    method: POST
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    body_format: raw
+    body: '{"id": {{ node_approval.json.id }}}'
+    status_code: [200, 201, 204]
+
+- name: "Link: Approval -> Pipeline"
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/controller/v2/workflow_job_template_nodes/{{ node_approval.json.id }}/success_nodes/"
+    method: POST
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    body_format: raw
+    body: '{"id": {{ node_pipeline.json.id }}}'
+    status_code: [200, 201, 204]
+
+- name: "Link: Pipeline -> Validate"
+  ansible.builtin.uri:
+    url: "{{ aap_host }}/api/controller/v2/workflow_job_template_nodes/{{ node_pipeline.json.id }}/success_nodes/"
+    method: POST
+    force_basic_auth: true
+    user: "{{ aap_username }}"
+    password: "{{ aap_password }}"
+    validate_certs: "{{ aap_validate_certs }}"
+    body_format: raw
+    body: '{"id": {{ node_validate.json.id }}}'
+    status_code: [200, 201, 204]

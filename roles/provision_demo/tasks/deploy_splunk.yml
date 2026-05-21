@@ -1,0 +1,121 @@
+---
+- name: Check if Splunk container is running
+  ansible.builtin.command:
+    cmd: podman ps --filter name={{ splunk_container_name }} --format '{{ '{{' }}.Names{{ '}}' }}'
+  register: splunk_running
+  changed_when: false
+  become: true
+
+- name: Start Splunk container
+  ansible.builtin.command:
+    cmd: >
+      podman run -d
+      --name {{ splunk_container_name }}
+      --hostname splunk.{{ ipa_domain }}
+      -p {{ splunk_web_port }}:8000
+      -p {{ splunk_hec_port }}:8088
+      -p 8089:8089
+      -e SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com
+      -e SPLUNK_START_ARGS=--accept-license
+      -e SPLUNK_PASSWORD={{ splunk_admin_password }}
+      -e SPLUNK_HEC_TOKEN={{ splunk_hec_token }}
+      {{ splunk_container_image }}
+  become: true
+  when: splunk_container_name not in (splunk_running.stdout | default(''))
+
+- name: Wait for Splunk to be ready
+  ansible.builtin.uri:
+    url: "http://localhost:{{ splunk_web_port }}/en-US/account/login"
+    status_code: 200
+    timeout: 10
+  register: splunk_ready
+  until: splunk_ready.status == 200
+  retries: 30
+  delay: 10
+
+- name: Enable HEC (HTTP Event Collector)
+  ansible.builtin.command:
+    cmd: >
+      podman exec {{ splunk_container_name }}
+      /opt/splunk/bin/splunk http-event-collector enable
+      -uri https://localhost:8089
+      -auth admin:{{ splunk_admin_password }}
+  become: true
+  register: hec_enable
+  changed_when: "'already enabled' not in hec_enable.stdout"
+  failed_when:
+    - hec_enable.rc != 0
+    - "'already enabled' not in hec_enable.stdout"
+
+- name: Create HEC token for cert monitoring
+  ansible.builtin.command:
+    cmd: >
+      podman exec {{ splunk_container_name }}
+      /opt/splunk/bin/splunk http-event-collector create cert-monitor
+      -uri https://localhost:8089
+      -auth admin:{{ splunk_admin_password }}
+      -token {{ splunk_hec_token }}
+      -index main
+      -sourcetype cert_check
+  become: true
+  register: hec_token
+  changed_when: "'already exists' not in hec_token.stderr"
+  failed_when:
+    - hec_token.rc != 0
+    - "'already exists' not in hec_token.stderr"
+
+- name: Deploy cert monitoring script
+  ansible.builtin.template:
+    src: cert_monitor.sh.j2
+    dest: "{{ demo_base_dir }}/cert_monitor.sh"
+    mode: "0755"
+  become: true
+
+- name: Create cert monitor systemd service
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=Certificate Monitoring for Splunk
+      After=network.target
+
+      [Service]
+      Type=simple
+      ExecStart={{ demo_base_dir }}/cert_monitor.sh
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/cert-monitor.service
+    mode: "0644"
+  become: true
+
+- name: Start cert monitoring service
+  ansible.builtin.systemd:
+    name: cert-monitor
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+
+- name: Create Splunk saved search for cert expiry alerts
+  ansible.builtin.command:
+    cmd: >
+      podman exec {{ splunk_container_name }}
+      /opt/splunk/bin/splunk add saved-search "cert_expiry_alert"
+      -search 'sourcetype=cert_check status!="valid" | stats latest(days_remaining) as days_remaining latest(status) as status by host cert_cn port'
+      -auth admin:{{ splunk_admin_password }}
+      -cron_schedule '*/2 * * * *'
+      -is_scheduled 1
+      -alert.severity 4
+      -alert_type "number of events"
+      -alert_comparator "greater than"
+      -alert_threshold 0
+      -action.webhook 1
+      -action.webhook.param.url "http://localhost:{{ eda_webhook_port }}/endpoint"
+  become: true
+  register: saved_search
+  changed_when: "'already exists' not in saved_search.stderr"
+  failed_when:
+    - saved_search.rc != 0
+    - "'already exists' not in saved_search.stderr"

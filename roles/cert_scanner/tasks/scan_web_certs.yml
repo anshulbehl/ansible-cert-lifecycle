@@ -1,0 +1,83 @@
+---
+- name: Ensure output directory exists
+  ansible.builtin.file:
+    path: "{{ cert_scanner_output_dir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Find nginx/httpd config files
+  ansible.builtin.find:
+    paths: "{{ cert_scanner_nginx_conf_paths + cert_scanner_httpd_conf_paths }}"
+    patterns: "*.conf"
+    recurse: true
+  register: web_configs
+  become: true
+  ignore_errors: true
+
+- name: Extract ssl_certificate paths from configs
+  ansible.builtin.shell:
+    cmd: |
+      grep -rh 'ssl_certificate\s' {{ item.path }} 2>/dev/null \
+        | grep -v '#' \
+        | grep -v 'ssl_certificate_key' \
+        | sed 's/.*ssl_certificate\s\+//;s/;//;s/\s*$//' \
+        | sort -u
+  register: cert_paths_raw
+  loop: "{{ web_configs.files | default([]) }}"
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Build list of unique cert file paths
+  ansible.builtin.set_fact:
+    cert_file_paths: "{{ cert_paths_raw.results | map(attribute='stdout_lines', default=[]) | flatten | unique }}"
+
+- name: Also scan common cert directories for PEM files
+  ansible.builtin.find:
+    paths:
+      - "{{ demo_certs_dir | default('/opt/cert-demo/certs') }}"
+      - /etc/pki/tls/certs
+    patterns: "*.crt,*.pem"
+    recurse: true
+  register: pem_files
+  become: true
+  ignore_errors: true
+
+- name: Add PEM files to scan list
+  ansible.builtin.set_fact:
+    cert_file_paths: "{{ (cert_file_paths | default([])) + (pem_files.files | default([]) | map(attribute='path') | list) | unique }}"
+
+- name: Read certificate details for each PEM cert
+  ansible.builtin.shell:
+    cmd: |
+      openssl x509 -in "{{ item }}" -noout \
+        -subject -issuer -enddate -startdate -serial -ext subjectAltName \
+        2>/dev/null | tr '\n' '|'
+  register: cert_details_raw
+  loop: "{{ cert_file_paths }}"
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Parse certificate details into structured data
+  ansible.builtin.set_fact:
+    web_certs_found: >-
+      {{
+        web_certs_found | default([]) + [{
+          'path': item.item,
+          'subject': (item.stdout | regex_search('subject=(.+?)(\||$)', '\1') | first | default('unknown') | trim),
+          'issuer': (item.stdout | regex_search('issuer=(.+?)(\||$)', '\1') | first | default('unknown') | trim),
+          'not_after': (item.stdout | regex_search('notAfter=(.+?)(\||$)', '\1') | first | default('unknown') | trim),
+          'not_before': (item.stdout | regex_search('notBefore=(.+?)(\||$)', '\1') | first | default('unknown') | trim),
+          'serial': (item.stdout | regex_search('serial=(.+?)(\||$)', '\1') | first | default('unknown') | trim),
+          'days_remaining': ((item.stdout | regex_search('notAfter=(.+?)(\||$)', '\1') | first | default(ansible_date_time.date) | trim | to_datetime('%b %d %H:%M:%S %Y %Z')) - (ansible_date_time.iso8601 | to_datetime('%Y-%m-%dT%H:%M:%SZ'))).days | default(0),
+          'type': 'pem',
+          'store': 'filesystem',
+          'service': (item.item | regex_search('/([^/]+)/tls\.crt$', '\1') | first | default('unknown')),
+          'is_self_signed': (item.stdout | regex_search('subject=(.+?)(\||$)', '\1') | first | default('')) == (item.stdout | regex_search('issuer=(.+?)(\||$)', '\1') | first | default('_no_match_')),
+          'hostname': inventory_hostname
+        }]
+      }}
+  loop: "{{ cert_details_raw.results }}"
+  when: item.rc == 0 and item.stdout | length > 0

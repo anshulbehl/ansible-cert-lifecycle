@@ -1,0 +1,14 @@
+---
+- name: Scan all hosts for TLS certificates
+  hosts: demo_host
+  gather_facts: true
+
+  roles:
+    - cert_scanner
+
+  post_tasks:
+    - name: Report scan results to Mattermost
+      ansible.builtin.include_role:
+        name: cert_reporter
+      vars:
+        report_message: "{{ lookup('template', 'roles/cert_reporter/templates/scan_summary.j2') }}"

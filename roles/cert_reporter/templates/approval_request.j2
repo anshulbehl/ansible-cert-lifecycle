@@ -1,0 +1,27 @@
+### Approval Required: Certificate Renewal
+
+**Certificate:** {{ cert_classification.cert_id }}
+**Risk Level:** {{ cert_classification.risk_level | upper }}
+**Strategy:** {{ cert_classification.renewal_strategy }}
+
+**AI Assessment:**
+> {{ cert_classification.reason }}
+
+**Blast Radius:**
+{% for svc in cert_classification.blast_radius %}
+- {{ svc }}
+{% endfor %}
+
+**Renewal Plan:**
+1. Request new certificate from IPA CA
+{% if cert_classification.renewal_strategy == 'ipa-issue-keytool-import' %}
+2. Create PKCS12 bundle
+3. Import into Java keystore
+4. Restart application (service interruption expected)
+{% else %}
+2. Replace PEM certificate on disk
+3. Reload service (no downtime)
+{% endif %}
+5. Validate TLS handshake and service health
+
+React with :white_check_mark: to approve or :x: to deny.

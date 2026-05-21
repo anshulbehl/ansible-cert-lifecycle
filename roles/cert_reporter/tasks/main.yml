@@ -1,0 +1,23 @@
+---
+- name: Post message to Mattermost
+  ansible.builtin.uri:
+    url: "{{ mattermost_webhook_url }}"
+    method: POST
+    body_format: json
+    body:
+      channel: "{{ report_channel | default(mattermost_channel) }}"
+      username: "{{ cert_reporter_username }}"
+      icon_url: "{{ cert_reporter_icon_url }}"
+      text: "{{ report_message }}"
+    headers:
+      Content-Type: application/json
+    status_code: [200, 201]
+  when: mattermost_webhook_url | length > 0
+
+- name: Log report to console when no Mattermost configured
+  ansible.builtin.debug:
+    msg: |
+      [Mattermost not configured - console output]
+      Channel: {{ report_channel | default(mattermost_channel) }}
+      {{ report_message }}
+  when: mattermost_webhook_url | length == 0

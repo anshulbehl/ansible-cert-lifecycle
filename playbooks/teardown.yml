@@ -1,0 +1,26 @@
+---
+- name: Tear down cert lifecycle demo EC2 instance
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  environment:
+    AWS_PROFILE: "{{ aws_profile | default('mfa') }}"
+
+  tasks:
+    - name: Terminate EC2 instance
+      amazon.aws.ec2_instance:
+        filters:
+          "tag:Name": "{{ ec2_instance_name }}"
+        region: "{{ aws_region }}"
+        state: absent
+
+    - name: Remove security group
+      amazon.aws.ec2_security_group:
+        name: "{{ ec2_security_group }}"
+        region: "{{ aws_region }}"
+        state: absent
+      ignore_errors: true
+
+    - name: Display teardown result
+      ansible.builtin.debug:
+        msg: "Demo environment torn down."
