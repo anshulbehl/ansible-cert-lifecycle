@@ -1,6 +1,6 @@
 ---
 - name: Validate certificate renewals
-  hosts: demo_host
+  hosts: all
   gather_facts: true
 
   pre_tasks:

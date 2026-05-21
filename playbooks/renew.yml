@@ -1,6 +1,6 @@
 ---
 - name: Renew certificates based on AI classification
-  hosts: demo_host
+  hosts: all
   gather_facts: true
 
   pre_tasks:

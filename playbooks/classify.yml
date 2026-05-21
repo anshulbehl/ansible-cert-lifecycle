@@ -1,6 +1,6 @@
 ---
 - name: Classify certificates using AI
-  hosts: demo_host
+  hosts: all
   gather_facts: true
 
   pre_tasks:

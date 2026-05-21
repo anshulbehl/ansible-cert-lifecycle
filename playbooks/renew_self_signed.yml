@@ -1,6 +1,6 @@
 ---
 - name: Renew a single self-signed certificate
-  hosts: demo_host
+  hosts: all
   gather_facts: true
 
   tasks:

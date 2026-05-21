@@ -1,6 +1,6 @@
 ---
 - name: Renew a single IPA-issued certificate
-  hosts: demo_host
+  hosts: all
   gather_facts: true
 
   tasks:

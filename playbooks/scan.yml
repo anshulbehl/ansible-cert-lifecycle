@@ -1,6 +1,6 @@
 ---
 - name: Scan all hosts for TLS certificates
-  hosts: demo_host
+  hosts: all
   gather_facts: true
 
   roles:

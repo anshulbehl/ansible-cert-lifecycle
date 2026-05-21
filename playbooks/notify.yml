@@ -1,6 +1,6 @@
 ---
 - name: Send notification to Mattermost
-  hosts: demo_host
+  hosts: all
   gather_facts: true
 
   tasks:

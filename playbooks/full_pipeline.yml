@@ -1,6 +1,6 @@
 ---
 - name: "Certificate Lifecycle Pipeline: Scan > Classify > Renew > Validate > Report"
-  hosts: demo_host
+  hosts: all
   gather_facts: true
 
   tasks:
