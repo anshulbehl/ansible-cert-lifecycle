@@ -7,9 +7,9 @@
 
 - name: Set LLM endpoint based on provider
   ansible.builtin.set_fact:
-    llm_endpoint: "{{ lookup('vars', llm_provider + '_endpoint') }}"
-    llm_model: "{{ lookup('vars', llm_provider + '_model') }}"
-    llm_api_key: "{{ lookup('vars', llm_provider + '_api_key', default='') }}"
+    llm_endpoint: "{{ llm_endpoint_url | default(lookup('vars', llm_provider + '_endpoint', default='')) }}"
+    llm_model: "{{ llm_model_name | default(lookup('vars', llm_provider + '_model', default='')) }}"
+    llm_api_key: "{{ llm_api_key_value | default(lookup('vars', llm_provider + '_api_key', default='')) }}"
 
 - name: Call LLM for classification (OpenAI-compatible API)
   ansible.builtin.uri:
