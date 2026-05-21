@@ -1,40 +1,33 @@
 ---
-- name: "{{ cert.service }} - Check TLS handshake"
+- name: "{{ cert.name }} - Check TLS handshake"
   ansible.builtin.shell:
     cmd: |
-      echo | openssl s_client -connect localhost:{{ cert.port | default('443') }} \
+      echo | openssl s_client -connect localhost:{{ cert.port }} \
         -servername {{ cert.cert_cn | default('localhost') }} 2>/dev/null \
-      | openssl x509 -noout -enddate -subject 2>/dev/null
+      | openssl x509 -noout -enddate 2>/dev/null | sed 's/notAfter=//'
   register: tls_check
   changed_when: false
   failed_when: false
   become: true
 
-- name: "{{ cert.service }} - Read new cert expiry from file"
-  ansible.builtin.shell:
-    cmd: openssl x509 -in "{{ cert.path }}" -noout -enddate 2>/dev/null | sed 's/notAfter=//'
-  register: cert_expiry
-  changed_when: false
-  become: true
-
-- name: "{{ cert.service }} - Check service health endpoint"
+- name: "{{ cert.name }} - Check service health endpoint"
   ansible.builtin.uri:
-    url: "https://localhost:{{ cert.port | default('443') }}/health"
+    url: "https://localhost:{{ cert.port }}/health"
     validate_certs: false
     status_code: 200
     timeout: "{{ cert_validator_timeout }}"
   register: health_check
   ignore_errors: true
 
-- name: "{{ cert.service }} - Record PEM validation result"
+- name: "{{ cert.name }} - Record PEM validation result"
   ansible.builtin.set_fact:
     validation_results: >-
       {{ validation_results | default([]) + [{
-        'cert_id': cert.service | default(cert.path),
+        'cert_id': cert.name,
         'type': 'pem',
         'tls_handshake': tls_check.rc == 0,
         'health_check': health_check.status | default(0) == 200,
-        'new_expiry': cert_expiry.stdout | default('unknown'),
+        'new_expiry': tls_check.stdout | default('unknown'),
         'status': (tls_check.rc == 0 and (health_check.status | default(0)) == 200) | ternary('pass', 'fail'),
         'reason': (tls_check.rc != 0) | ternary('TLS handshake failed', ((health_check.status | default(0)) != 200) | ternary('Health check failed', ''))
       }] }}

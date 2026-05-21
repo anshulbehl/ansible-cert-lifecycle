@@ -1,13 +1,13 @@
 ---
-- name: Validate PEM certificates via TLS handshake
+- name: Validate PEM certificates (self-signed and IPA) via TLS handshake
   ansible.builtin.include_tasks: validate_pem.yml
-  loop: "{{ certs_to_validate | selectattr('store', 'equalto', 'filesystem') | list }}"
+  loop: "{{ certs_to_validate | selectattr('cert_type', 'in', ['self-signed', 'ipa']) | list }}"
   loop_control:
     loop_var: cert
 
 - name: Validate Java keystore certificates
   ansible.builtin.include_tasks: validate_keystore.yml
-  loop: "{{ certs_to_validate | selectattr('store', 'equalto', 'java-keystore') | list }}"
+  loop: "{{ certs_to_validate | selectattr('cert_type', 'equalto', 'keystore') | list }}"
   loop_control:
     loop_var: cert
 
