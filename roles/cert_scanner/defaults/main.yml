@@ -19,3 +19,6 @@ cert_scanner_keystore_extensions:
 cert_scanner_keystore_password: changeit
 
 cert_scanner_output_dir: /tmp/cert-scan-results
+
+cert_expiry_warning_days: 30
+cert_expiry_critical_days: 7
