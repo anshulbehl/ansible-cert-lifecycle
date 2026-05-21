@@ -24,16 +24,21 @@
       -subj "/CN={{ cert_cn }}/O={{ ipa_realm }}"
   become: true
 
+- name: Copy CSR into IPA container
+  ansible.builtin.command:
+    cmd: podman cp /tmp/{{ cert_id }}.csr {{ ipa_container_name }}:/tmp/{{ cert_id }}.csr
+  become: true
+
 - name: Submit CSR to FreeIPA for signing
   ansible.builtin.shell:
     cmd: |
-      CSR=$(cat /tmp/{{ cert_id }}.csr)
       podman exec {{ ipa_container_name }} bash -c "
-        echo '{{ ipa_admin_password }}' | kinit admin 2>/dev/null &&
-        ipa cert-request \
-          --principal=HTTP/{{ cert_cn }}@{{ ipa_realm }} \
-          --certificate-out=/tmp/{{ cert_id }}.crt \
-          <(echo '${CSR}')
+        echo '{{ ipa_admin_password }}' | kinit admin &&
+        ipa host-add {{ cert_cn }} --force 2>/dev/null || true &&
+        ipa cert-request /tmp/{{ cert_id }}.csr \
+          --principal=host/{{ cert_cn }}@{{ ipa_realm }} \
+          --add \
+          --certificate-out=/tmp/{{ cert_id }}.crt
       "
       podman cp {{ ipa_container_name }}:/tmp/{{ cert_id }}.crt /tmp/{{ cert_id }}.crt
   become: true
