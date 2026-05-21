@@ -38,7 +38,7 @@
 
 - name: Parse LLM response into classification results
   ansible.builtin.set_fact:
-    cert_classifications: "{{ llm_response_text | from_json }}"
+    cert_classifications: "{{ llm_response_text if llm_response_text is iterable and llm_response_text is not string else llm_response_text | from_json }}"
 
 - name: Validate classification results
   ansible.builtin.assert:
