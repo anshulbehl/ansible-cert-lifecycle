@@ -2,6 +2,12 @@
 - name: "Certificate Lifecycle Pipeline: Scan > Classify > Renew > Validate > Report"
   hosts: all
   gather_facts: true
+  vars:
+    cert_expiry_warning_days: "{{ cert_expiry_warning_days | default(30) }}"
+    cert_expiry_critical_days: "{{ cert_expiry_critical_days | default(7) }}"
+    mattermost_webhook_url: "{{ mattermost_webhook_url | default('') }}"
+    mattermost_channel: "{{ mattermost_channel | default('cert-lifecycle') }}"
+    cert_scanner_output_dir: /tmp/cert-scan-results
 
   tasks:
     # Phase 1: Discovery

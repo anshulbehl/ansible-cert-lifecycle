@@ -3,3 +3,4 @@ cert_reporter_icon_url: "https://www.redhat.com/favicon.ico"
 cert_reporter_username: "Cert Lifecycle Bot"
 mattermost_webhook_url: ""
 mattermost_channel: cert-lifecycle
+cert_expiry_warning_days: 30
