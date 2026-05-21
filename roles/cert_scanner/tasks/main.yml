@@ -5,15 +5,23 @@
 - name: Scan for Java keystores
   ansible.builtin.include_tasks: scan_keystores.yml
 
+- name: Filter to only demo service certs (exclude CA certs, proxy certs, etc.)
+  ansible.builtin.set_fact:
+    all_certs_raw: "{{ web_certs_found | default([]) + keystore_certs_found | default([]) }}"
+
+- name: Keep only certs with a known service name
+  ansible.builtin.set_fact:
+    filtered_certs: "{{ all_certs_raw | selectattr('service', 'ne', 'unknown') | list }}"
+
 - name: Build combined cert report
   ansible.builtin.set_fact:
     cert_scan_report:
       scan_timestamp: "{{ ansible_date_time.iso8601 }}"
       hostname: "{{ inventory_hostname }}"
-      certs_found: "{{ web_certs_found | default([]) + keystore_certs_found | default([]) }}"
-      total_certs: "{{ (web_certs_found | default([]) + keystore_certs_found | default([])) | length }}"
-      expiring_soon: "{{ (web_certs_found | default([]) + keystore_certs_found | default([])) | selectattr('days_remaining', 'lt', cert_expiry_warning_days) | list | length }}"
-      expired: "{{ (web_certs_found | default([]) + keystore_certs_found | default([])) | selectattr('days_remaining', 'lt', 0) | list | length }}"
+      certs_found: "{{ filtered_certs }}"
+      total_certs: "{{ filtered_certs | length }}"
+      expiring_soon: "{{ filtered_certs | selectattr('days_remaining', 'lt', cert_expiry_warning_days) | list | length }}"
+      expired: "{{ filtered_certs | selectattr('days_remaining', 'lt', 0) | list | length }}"
 
 - name: Save cert report to file
   ansible.builtin.copy:

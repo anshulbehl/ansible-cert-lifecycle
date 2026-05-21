@@ -52,22 +52,23 @@
           }}
       loop: "{{ demo_services }}"
 
-    - name: Find matching service for each classification
+    - name: Match classifications to known services and skip unknowns
       ansible.builtin.set_fact:
         classified_certs: >-
           {{
-            classified_certs | default([]) + [{
+            classified_certs | default([]) + ([{
               'cert_id': item.cert_id,
               'risk_level': item.risk_level,
               'renewal_strategy': item.renewal_strategy,
               'approval_type': item.approval_type,
-              'service': (demo_services | select('search', item.cert_id) | first | default(none)) if false else
-                         (demo_services | selectattr('name', 'in', item.cert_id) | first | default(
-                          {'name': item.cert_id, 'cert_cn': item.cert_id + '.certdemo.local', 'port': '8443', 'keystore_password': 'changeit'}
-                         ))
-            }]
+              'service': (demo_services | selectattr('name', 'in', item.cert_id) | first)
+            }] if (demo_services | selectattr('name', 'in', item.cert_id) | list | length > 0) else [])
           }}
       loop: "{{ cert_classifications }}"
+
+    - name: Show matched certs
+      ansible.builtin.debug:
+        msg: "Matched {{ classified_certs | length }} certs to known services (skipped {{ cert_classifications | length - classified_certs | length }} unknown)"
 
     # Phase 3a: Auto-renew self-signed certs
     - name: "PHASE 3a: Auto-renew low-risk certificates"
