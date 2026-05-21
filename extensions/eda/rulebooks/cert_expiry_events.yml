@@ -9,9 +9,6 @@
   rules:
     - name: Splunk ITSI cert expiry alert
       condition: event.payload.source == "splunk_itsi" and event.payload.kpi is match("cert_expiry.*")
-      throttle:
-        once_within: 1 hour
-        group_by: event.payload.host
       action:
         run_job_template:
           name: "Certificate Lifecycle Pipeline"
@@ -25,9 +22,6 @@
 
     - name: Splunk ES TLS failure alert
       condition: event.payload.source == "splunk_es" and event.payload.search_name is match(".*tls.*|.*ssl.*|.*certificate.*")
-      throttle:
-        once_within: 30 minutes
-        group_by: event.payload.host
       action:
         run_job_template:
           name: "Cert Discovery Scanner"
@@ -53,3 +47,14 @@
           job_args:
             extra_vars:
               trigger_source: manual
+
+    - name: Dashboard invalidate trigger
+      condition: event.payload.source == "dashboard"
+      action:
+        run_job_template:
+          name: "Certificate Lifecycle Full Pipeline"
+          organization: "Default"
+          job_args:
+            extra_vars:
+              trigger_source: dashboard
+              trigger_service: "{{ event.payload.service | default('all') }}"

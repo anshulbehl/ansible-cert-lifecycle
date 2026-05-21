@@ -59,7 +59,12 @@ demo_services:
     risk_level: medium
 
 # LLM Configuration (all providers use OpenAI-compatible API)
-llm_provider: granite  # granite | claude | gemini
+llm_provider: llama  # llama | granite | claude | gemini
+
+# Llama (via litellm proxy, default)
+llama_endpoint: "https://litellm-prod.apps.maas.redhatworkshops.io/v1/chat/completions"
+llama_api_key: "{{ vault_llm_api_key | default('') }}"
+llama_model: llama-scout-17b
 
 # Granite (RHEL AI, local, no API key needed)
 granite_endpoint: "https://rhel-ai:8443/v1/chat/completions"

@@ -11,4 +11,12 @@
       ansible.builtin.include_role:
         name: cert_reporter
       vars:
-        report_message: "{{ lookup('template', 'roles/cert_reporter/templates/scan_summary.j2') }}"
+        report_message: |
+          ### Certificate Scan Complete
+          **Host:** {{ cert_scan_report.hostname }}
+          **Total:** {{ cert_scan_report.total_certs }} certs, {{ cert_scan_report.expiring_soon }} expiring within {{ cert_expiry_warning_days }} days, {{ cert_scan_report.expired }} expired.
+          {% for cert in cert_scan_report.certs_found %}
+          {% if cert.days_remaining < cert_expiry_warning_days %}
+          - **{{ cert.service }}** ({{ cert.store }}): {{ cert.days_remaining }} days remaining
+          {% endif %}
+          {% endfor %}

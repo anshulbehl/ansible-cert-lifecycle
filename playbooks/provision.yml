@@ -29,6 +29,8 @@
         image_id: "{{ ec2_ami }}"
         region: "{{ aws_region }}"
         security_group: "{{ sg.group_id }}"
+        tags:
+          Owner: "{{ ec2_owner_tag | default('abehl') }}"
         volumes:
           - device_name: /dev/sda1
             ebs:

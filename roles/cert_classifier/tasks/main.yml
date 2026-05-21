@@ -7,18 +7,9 @@
 
 - name: Set LLM endpoint based on provider
   ansible.builtin.set_fact:
-    llm_endpoint: >-
-      {{ (llm_provider == 'granite') | ternary(granite_endpoint,
-         (llm_provider == 'claude') | ternary(claude_endpoint,
-         gemini_endpoint)) }}
-    llm_model: >-
-      {{ (llm_provider == 'granite') | ternary(granite_model,
-         (llm_provider == 'claude') | ternary(claude_model,
-         'gemini-2.0-flash')) }}
-    llm_api_key: >-
-      {{ (llm_provider == 'granite') | ternary('',
-         (llm_provider == 'claude') | ternary(claude_api_key,
-         gemini_api_key)) }}
+    llm_endpoint: "{{ lookup('vars', llm_provider + '_endpoint') }}"
+    llm_model: "{{ lookup('vars', llm_provider + '_model') }}"
+    llm_api_key: "{{ lookup('vars', llm_provider + '_api_key', default='') }}"
 
 - name: Call LLM for classification (OpenAI-compatible API)
   ansible.builtin.uri:
