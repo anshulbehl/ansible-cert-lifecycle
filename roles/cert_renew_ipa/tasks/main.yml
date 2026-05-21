@@ -69,11 +69,20 @@
     - "/tmp/{{ cert_id }}.crt"
     - "{{ cert_key_path }}.new"
 
-- name: Reload service to pick up new cert
+- name: Try nginx reload first
   ansible.builtin.command:
     cmd: "podman exec {{ service_name }} nginx -s reload"
   become: true
+  register: nginx_reload
+  failed_when: false
+  changed_when: nginx_reload.rc == 0
   when: service_name is defined
+
+- name: Fall back to container restart if not nginx
+  ansible.builtin.command:
+    cmd: "podman restart {{ service_name }}"
+  become: true
+  when: service_name is defined and nginx_reload.rc | default(1) != 0
 
 - name: Record renewal result
   ansible.builtin.set_fact:
