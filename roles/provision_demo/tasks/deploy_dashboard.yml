@@ -21,6 +21,10 @@
       EDA_WEBHOOK_URL=http://{{ eda_webhook_host }}:{{ eda_webhook_port }}/endpoint
       SPLUNK_HEC_URL=http://localhost:{{ splunk_hec_port }}/services/collector/event
       SPLUNK_HEC_TOKEN={{ splunk_hec_token }}
+      AAP_HOST={{ vault_aap_host | default('') }}
+      AAP_USERNAME={{ aap_username | default('admin') }}
+      AAP_PASSWORD={{ vault_aap_password | default('') }}
+      AAP_PIPELINE_JT_ID={{ aap_pipeline_jt_id | default('111') }}
       DEMO_SERVICES={{ demo_services | to_json }}
     dest: "{{ demo_dashboard_dir }}/.env"
     mode: "0600"

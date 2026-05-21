@@ -28,6 +28,11 @@ EDA_WEBHOOK = os.environ.get("EDA_WEBHOOK_URL", "http://localhost:5000/endpoint"
 SPLUNK_HEC = os.environ.get("SPLUNK_HEC_URL", "http://localhost:8088/services/collector/event")
 SPLUNK_HEC_TOKEN = os.environ.get("SPLUNK_HEC_TOKEN", "cert-demo-hec-token")
 
+AAP_HOST = os.environ.get("AAP_HOST", "")
+AAP_USERNAME = os.environ.get("AAP_USERNAME", "admin")
+AAP_PASSWORD = os.environ.get("AAP_PASSWORD", "")
+AAP_PIPELINE_JT_ID = os.environ.get("AAP_PIPELINE_JT_ID", "111")
+
 SERVICES = json.loads(os.environ.get("DEMO_SERVICES", "[]"))
 
 events_log = []
@@ -156,7 +161,7 @@ async def invalidate_cert(service_name: str):
                     "openssl", "req", "-new", "-x509", "-nodes",
                     "-keyout", f"{cert_dir}/tls.key",
                     "-out", f"{cert_dir}/tls.crt",
-                    "-days", "0",
+                    "-days", "1",
                     "-subj", f"/CN={svc['cert_cn']}/O=EXPIRED/OU=Demo",
                 ],
                 check=True, capture_output=True,
@@ -178,7 +183,7 @@ async def invalidate_cert(service_name: str):
                     "openssl", "req", "-new", "-x509", "-nodes",
                     "-keyout", f"{cert_dir}/tls.key",
                     "-out", f"{cert_dir}/tls.crt",
-                    "-days", "0",
+                    "-days", "1",
                     "-subj", f"/CN={svc['cert_cn']}/O=EXPIRED/OU=Demo",
                 ],
                 check=True, capture_output=True,
@@ -226,10 +231,19 @@ async def invalidate_cert(service_name: str):
 
         event = add_event(
             "invalidate", service_name,
-            f"Certificate invalidated for {service_name}. "
-            f"Splunk will detect the failure and trigger remediation.",
+            f"Certificate invalidated for {service_name}. Launching remediation pipeline.",
         )
-        return {"status": "invalidated", "service": service_name, "event": event}
+
+        job_id, error = await launch_aap_job()
+        if job_id:
+            add_event(
+                "trigger", service_name,
+                f"Remediation pipeline launched in AAP (job #{job_id})",
+            )
+        else:
+            add_event("trigger", service_name, f"AAP launch failed: {error}")
+
+        return {"status": "invalidated", "service": service_name, "aap_job_id": job_id, "event": event}
 
     except subprocess.CalledProcessError as e:
         raise HTTPException(
@@ -238,24 +252,38 @@ async def invalidate_cert(service_name: str):
         )
 
 
+async def launch_aap_job(job_template_id=None):
+    if not AAP_HOST or not AAP_PASSWORD:
+        return None, "AAP not configured"
+    url = f"{AAP_HOST}/api/controller/v2/job_templates/{job_template_id or AAP_PIPELINE_JT_ID}/launch/"
+    try:
+        async with httpx.AsyncClient(verify=False) as client:
+            resp = await client.post(
+                url,
+                auth=(AAP_USERNAME, AAP_PASSWORD),
+                json={},
+                timeout=15,
+            )
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                return data.get("id"), None
+            return None, f"AAP returned {resp.status_code}: {resp.text[:200]}"
+    except Exception as e:
+        return None, str(e)
+
+
 @app.post("/api/trigger-scan")
 async def trigger_scan():
-    payload = {
-        "source": "dashboard",
-        "action": "full_pipeline",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(EDA_WEBHOOK, json=payload, timeout=10)
-        event = add_event("trigger", "all", "Full pipeline triggered from dashboard")
-        return {"status": "triggered", "eda_response": resp.status_code, "event": event}
-    except Exception as e:
+    job_id, error = await launch_aap_job()
+    if job_id:
         event = add_event(
             "trigger", "all",
-            f"Pipeline trigger sent (EDA may not be running): {e}",
+            f"Full pipeline launched in AAP (job #{job_id})",
         )
-        return {"status": "triggered_local", "event": event}
+        return {"status": "triggered", "aap_job_id": job_id, "event": event}
+    else:
+        event = add_event("trigger", "all", f"Pipeline trigger failed: {error}")
+        return {"status": "error", "detail": error, "event": event}
 
 
 @app.post("/api/trigger-renewal/{service_name}")
@@ -264,21 +292,16 @@ async def trigger_renewal(service_name: str):
     if not svc:
         raise HTTPException(status_code=404, detail=f"Service {service_name} not found")
 
-    payload = {
-        "source": "dashboard",
-        "action": "renew_single",
-        "service": service_name,
-        "cert_type": svc["cert_type"],
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-    try:
-        async with httpx.AsyncClient() as client:
-            await client.post(EDA_WEBHOOK, json=payload, timeout=10)
-        event = add_event("trigger", service_name, f"Renewal triggered for {service_name}")
-        return {"status": "triggered", "event": event}
-    except Exception as e:
-        event = add_event("trigger", service_name, f"Renewal trigger sent: {e}")
-        return {"status": "triggered_local", "event": event}
+    job_id, error = await launch_aap_job()
+    if job_id:
+        event = add_event(
+            "trigger", service_name,
+            f"Renewal pipeline launched in AAP (job #{job_id}) for {service_name}",
+        )
+        return {"status": "triggered", "aap_job_id": job_id, "event": event}
+    else:
+        event = add_event("trigger", service_name, f"Trigger failed: {error}")
+        return {"status": "error", "detail": error, "event": event}
 
 
 @app.get("/api/events")
