@@ -203,8 +203,9 @@
     user: "{{ aap_username }}"
     password: "{{ aap_password }}"
     validate_certs: "{{ aap_validate_certs }}"
-    body_format: raw
-    body: '{"id": {{ node_classify.json.id }}}'
+    body_format: json
+    body:
+      id: "{{ node_classify.json.id }}"
     status_code: [200, 201, 204]
 
 - name: "Link: Classify -> Approval"
@@ -215,8 +216,9 @@
     user: "{{ aap_username }}"
     password: "{{ aap_password }}"
     validate_certs: "{{ aap_validate_certs }}"
-    body_format: raw
-    body: '{"id": {{ node_approval.json.id }}}'
+    body_format: json
+    body:
+      id: "{{ node_approval.json.id }}"
     status_code: [200, 201, 204]
 
 - name: "Link: Approval -> Pipeline"
@@ -227,8 +229,9 @@
     user: "{{ aap_username }}"
     password: "{{ aap_password }}"
     validate_certs: "{{ aap_validate_certs }}"
-    body_format: raw
-    body: '{"id": {{ node_pipeline.json.id }}}'
+    body_format: json
+    body:
+      id: "{{ node_pipeline.json.id }}"
     status_code: [200, 201, 204]
 
 - name: "Link: Pipeline -> Validate"
@@ -239,6 +242,7 @@
     user: "{{ aap_username }}"
     password: "{{ aap_password }}"
     validate_certs: "{{ aap_validate_certs }}"
-    body_format: raw
-    body: '{"id": {{ node_validate.json.id }}}'
+    body_format: json
+    body:
+      id: "{{ node_validate.json.id }}"
     status_code: [200, 201, 204]
