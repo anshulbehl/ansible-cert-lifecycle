@@ -237,16 +237,19 @@ async def invalidate_cert(service_name: str):
             f"Certificate invalidated for {service_name}. Sending failure event to Splunk.",
         )
 
-        splunk_status, error = await send_splunk_event(service_name)
-        if splunk_status:
+        await send_splunk_event(service_name)
+        add_event("observe", service_name, "Cert failure event sent to Splunk")
+
+        job_id, error = await launch_aap_job()
+        if job_id:
             add_event(
                 "trigger", service_name,
-                f"Cert failure sent to Splunk (HTTP {splunk_status}). Splunk will fire alert to EDA.",
+                f"AIOps pipeline launched (AAP job #{job_id}). Scan > AI Classify > Renew > Validate.",
             )
         else:
-            add_event("trigger", service_name, f"Splunk event failed: {error}")
+            add_event("trigger", service_name, f"AAP launch failed: {error}")
 
-        return {"status": "invalidated", "service": service_name, "splunk_status": splunk_status, "event": event}
+        return {"status": "invalidated", "service": service_name, "aap_job_id": job_id, "event": event}
 
     except subprocess.CalledProcessError as e:
         raise HTTPException(
