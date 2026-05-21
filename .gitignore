@@ -4,3 +4,4 @@ __pycache__/
 *.retry
 vault_password
 .vault_pass
+inventory/ec2.yml

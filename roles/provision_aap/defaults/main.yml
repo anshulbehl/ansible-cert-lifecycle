@@ -1,12 +1,12 @@
 ---
-aap_host: "https://98.92.35.128"
+aap_host: "{{ vault_aap_host | default('https://localhost') }}"
 aap_username: admin
-aap_password: "{{ vault_aap_password | default('ansible123') }}"
+aap_password: "{{ vault_aap_password }}"
 aap_validate_certs: false
 aap_organization: Default
 
 aap_project_name: Cert Lifecycle Management
-aap_project_scm_url: "http://gitea:3000/student/ansible-cert-lifecycle.git"
+aap_project_scm_url: "https://github.com/anshulbehl/ansible-cert-lifecycle.git"
 
 aap_inventory_name: Cert Demo Hosts
 aap_ee_name: Default execution environment
