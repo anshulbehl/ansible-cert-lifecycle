@@ -13,7 +13,10 @@
       ansible.builtin.include_role:
         name: cert_reporter
       vars:
-        report_message: "{{ lookup('template', 'roles/cert_reporter/templates/scan_summary.j2') }}"
+        report_message: |
+          ### Certificate Scan Complete
+          **Host:** {{ cert_scan_report.hostname }}
+          **Total:** {{ cert_scan_report.total_certs }} certs, {{ cert_scan_report.expiring_soon }} expiring within {{ cert_expiry_warning_days }} days, {{ cert_scan_report.expired }} expired.
 
     # Phase 2: AI Classification
     - name: "PHASE 2: Classify certificates with AI ({{ llm_provider }})"
@@ -24,7 +27,13 @@
       ansible.builtin.include_role:
         name: cert_reporter
       vars:
-        report_message: "{{ lookup('template', 'roles/cert_reporter/templates/classification_summary.j2') }}"
+        report_message: |
+          ### AI Certificate Classification ({{ llm_provider }})
+          {% for cert in cert_classifications %}
+          **{{ cert.cert_id }}** - {{ cert.risk_level | upper }}
+          > {{ cert.reason }}
+          > Strategy: {{ cert.renewal_strategy }} | Approval: {{ cert.approval_type }}
+          {% endfor %}
 
     # Phase 3: Renewal (by risk level)
     - name: "PHASE 3a: Auto-renew low-risk certificates"
@@ -45,7 +54,7 @@
         name: cert_reporter
       vars:
         report_message: |
-          :large_green_circle: **Auto-renewed {{ cert_classifications | selectattr('renewal_strategy', 'equalto', 'self-signed-regenerate') | list | length }} low-risk certificates.** No approval needed.
+          Auto-renewed {{ cert_classifications | selectattr('renewal_strategy', 'equalto', 'self-signed-regenerate') | list | length }} low-risk certificates. No approval needed.
 
     - name: "PHASE 3b: Renew medium-risk certificates (IPA)"
       ansible.builtin.include_role:
@@ -87,4 +96,9 @@
       ansible.builtin.include_role:
         name: cert_reporter
       vars:
-        report_message: "{{ lookup('template', 'roles/cert_reporter/templates/final_summary.j2') }}"
+        report_message: |
+          ### Certificate Renewal Summary
+          **Passed:** {{ validation_summary.passed }}/{{ validation_summary.total_validated }}
+          {% for result in validation_summary.results %}
+          - {{ result.cert_id }}: {{ result.status | upper }} {% if result.new_expiry is defined %}({{ result.new_expiry }}){% endif %}
+          {% endfor %}

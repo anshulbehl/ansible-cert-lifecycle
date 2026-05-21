@@ -13,8 +13,13 @@
     - cert_validator
 
   post_tasks:
-    - name: Report validation results to Mattermost
+    - name: Report validation results
       ansible.builtin.include_role:
         name: cert_reporter
       vars:
-        report_message: "{{ lookup('template', 'roles/cert_reporter/templates/final_summary.j2') }}"
+        report_message: |
+          ### Certificate Renewal Validation
+          **Passed:** {{ validation_summary.passed }}/{{ validation_summary.total_validated }}
+          {% for result in validation_summary.results %}
+          - {{ result.cert_id }}: {{ result.status | upper }} {% if result.new_expiry is defined %}(expires {{ result.new_expiry }}){% endif %}
+          {% endfor %}

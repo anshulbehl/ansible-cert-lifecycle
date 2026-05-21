@@ -19,8 +19,14 @@
     - cert_classifier
 
   post_tasks:
-    - name: Report classification results to Mattermost
+    - name: Report classification results
       ansible.builtin.include_role:
         name: cert_reporter
       vars:
-        report_message: "{{ lookup('template', 'roles/cert_reporter/templates/classification_summary.j2') }}"
+        report_message: |
+          ### AI Certificate Classification ({{ llm_provider }})
+          {% for cert in cert_classifications %}
+          **{{ cert.cert_id }}** - {{ cert.risk_level | upper }}
+          > {{ cert.reason }}
+          > Strategy: {{ cert.renewal_strategy }} | Approval: {{ cert.approval_type }}
+          {% endfor %}
